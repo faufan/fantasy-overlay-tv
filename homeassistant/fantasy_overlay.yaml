@@ -1,0 +1,50 @@
+# Fantasy overlay controls for Home Assistant.
+# Paste into configuration.yaml (or a package), replace TV_IP with the address
+# the app shows on its settings screen, then restart Home Assistant.
+
+rest_command:
+  fantasy_overlay_show:
+    url: "http://TV_IP:8765/show"
+  fantasy_overlay_hide:
+    url: "http://TV_IP:8765/hide"
+  fantasy_overlay_toggle:
+    url: "http://TV_IP:8765/toggle"
+  fantasy_overlay_reload:
+    url: "http://TV_IP:8765/reload"
+  # Panel mode: full, score, auto (score only, opens on big plays) or off
+  fantasy_overlay_mode:
+    url: "http://TV_IP:8765/mode?m={{ mode }}"
+  fantasy_overlay_width:
+    url: "http://TV_IP:8765/set?width={{ width }}"
+  fantasy_overlay_demo:
+    url: "http://TV_IP:8765/set?url=https%3A%2F%2Ffantasy-panel.faufan.workers.dev%2Fpanel%3Fdemo%3D1"
+  fantasy_overlay_live:
+    url: "http://TV_IP:8765/set?url=https%3A%2F%2Ffantasy-panel.faufan.workers.dev%2Fpanel"
+
+script:
+  fantasy_overlay_toggle:
+    alias: "Fantasy overlay"
+    icon: mdi:football
+    sequence:
+      - action: rest_command.fantasy_overlay_toggle
+
+# Optional: show it automatically for the 1 PM Sunday games and hide it at midnight.
+automation:
+  - alias: "Fantasy overlay on for Sunday games"
+    triggers:
+      - trigger: time
+        at: "12:55:00"
+    conditions:
+      - condition: time
+        weekday: [sun]
+    actions:
+      - action: rest_command.fantasy_overlay_show
+  - alias: "Fantasy overlay off at night"
+    triggers:
+      - trigger: time
+        at: "23:59:00"
+    actions:
+      - action: rest_command.fantasy_overlay_hide
+
+# Dashboard button (Echo Show / phone): add a Button card with
+#   tap_action: { action: perform-action, perform_action: script.fantasy_overlay_toggle }

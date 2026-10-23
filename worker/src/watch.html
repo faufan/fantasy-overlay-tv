@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Game Day</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+  window.__onGCastApiAvailable = function(isAvailable) {
+    if (isAvailable) {
+      cast.framework.CastContext.getInstance().setOptions({
+        receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+      });
+      window.__castReady = true;
+      document.dispatchEvent(new Event('cast-ready'));
+    }
+  };
+</script>
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+<style>
+  :root {
+    --bg: #05070A;
+    --surface: #0E131B;
+    --card: #151B25;
+    --edge: rgba(255, 255, 255, 0.09);
+    --text: #F3F5F8;
+    --muted: #9AA4B2;
+    --accent: #5AA9FF;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: 'Barlow', system-ui, sans-serif; overflow: hidden; }
+  button, input { font: inherit; color: inherit; }
+
+  .app { position: fixed; inset: 0; display: grid; grid-template-columns: 3fr 1fr; }
+  .app.nopanel { grid-template-columns: 1fr; }
+  .app.nopanel .side { display: none; }
+  .stage { position: relative; min-width: 0; min-height: 0; display: grid; gap: 4px; background: var(--bg); }
+  .side { min-width: 0; min-height: 0; background: #090C12; }
+  .side iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  /* Layouts */
+  .stage[data-layout="one"] { grid-template-rows: 1fr; }
+  .stage[data-layout="one"] #box1 { display: none; }
+  .stage[data-layout="split"] { grid-template-rows: 1fr 1fr; }
+  .stage[data-layout="pip"] { grid-template-rows: 1fr; }
+  .stage[data-layout="pip"] #box1 {
+    position: absolute; right: 24px; bottom: 24px; width: 32%; aspect-ratio: 16 / 9;
+    z-index: 2; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); border-radius: 10px;
+  }
+
+  .box { position: relative; min-width: 0; min-height: 0; background: #000; overflow: hidden; outline: 2px solid transparent; outline-offset: -2px; transition: outline-color 0.2s; }
+  .box.active { outline-color: var(--accent); }
+  .player, .player iframe, .player video { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+
+  .chips { position: absolute; top: 12px; left: 12px; display: flex; gap: 8px; z-index: 3; opacity: 0; transition: opacity 0.25s; }
+  .box:hover .chips, .box:focus-within .chips, body.showui .chips { opacity: 1; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--edge); background: rgba(10, 14, 20, 0.82); font-size: 14px; font-weight: 600; cursor: pointer; }
+  .chip:hover { background: rgba(30, 38, 50, 0.95); }
+  .chip svg { width: 16px; height: 16px; }
+  .chip.on { border-color: var(--accent); color: #CFE4FF; }
+
+  .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: radial-gradient(ellipse at center, #121925 0%, #07090D 70%); }
+  .form { width: min(560px, 100%); display: flex; flex-direction: column; gap: 12px; }
+  .form .title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: 1.5px; color: #D3D9E1; }
+  .form .row { display: flex; gap: 8px; }
+  .form input { flex: 1; min-width: 0; height: 46px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--edge); background: var(--card); font-size: 16px; }
+  .form input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .form button { height: 46px; padding: 0 20px; border-radius: 10px; border: 0; background: var(--accent); color: #04111F; font-weight: 700; cursor: pointer; }
+  .form .hint { font-size: 13px; color: var(--muted); line-height: 1.45; }
+  .stage[data-layout="pip"] #box1 .form .title { font-size: 16px; }
+  .stage[data-layout="pip"] #box1 .form .hint { display: none; }
+
+  .blocked { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 3; padding: 10px 12px; border-radius: 8px; background: rgba(10, 14, 20, 0.85); font-size: 13px; color: var(--muted); display: none; }
+  .box.iframe .blocked { display: block; animation: fade 12s forwards; }
+  @keyframes fade { 0%, 85% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+
+  .bar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 999px; background: rgba(10, 14, 20, 0.88); border: 1px solid var(--edge); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+  body.showui .bar { opacity: 1; pointer-events: auto; }
+  .seg { display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); }
+  .seg button, .bar > button { height: 34px; padding: 0 14px; border-radius: 999px; border: 0; background: transparent; font-size: 14px; font-weight: 600; color: #C9D1DC; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .seg button[aria-pressed="true"] { background: #2A3446; color: #fff; }
+  .bar > button:hover, .seg button:hover { background: #222B3A; }
+  .bar svg { width: 16px; height: 16px; }
+  .sep { width: 1px; height: 22px; background: var(--edge); margin: 0 2px; }
+
+  google-cast-launcher {
+    --connected-color: var(--accent);
+    --disconnected-color: #C9D1DC;
+    width: 24px;
+    height: 24px;
+    display: inline-block;
+    cursor: pointer;
+    vertical-align: middle;
+    margin: 0 6px;
+  }
+</style>
+</head>
+<body class="showui">
+<div class="app" id="app">
+  <main class="stage" id="stage" data-layout="pip">
+    <section class="box" id="box0" aria-label="Stream 1"></section>
+    <section class="box" id="box1" aria-label="Stream 2"></section>
+  </main>
+  <aside class="side"><iframe id="panel" title="Fantasy panel"></iframe></aside>
+</div>
+
+<div class="bar" id="bar" role="toolbar" aria-label="Layout">
+  <div class="seg" id="layouts">
+    <button data-layout="one" aria-pressed="false">One</button>
+    <button data-layout="pip" aria-pressed="false">Main + corner</button>
+    <button data-layout="split" aria-pressed="false">Stacked</button>
+  </div>
+  <div class="sep"></div>
+  <button id="swapBtn" title="Swap streams">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4"/><path d="M3 8h14"/><path d="m17 20 4-4-4-4"/><path d="M21 16H7"/></svg>Swap
+  </button>
+  <button id="panelBtn" aria-pressed="true">Fantasy</button>
+  <button id="fsBtn" title="Full screen">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>Full screen
+  </button>
+  <div class="sep"></div>
+  <google-cast-launcher id="castBtn" title="Cast to TV"></google-cast-launcher>
+</div>
+
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var key = params.get('key');
+  var demo = params.get('demo');
+
+  var state = { links: ['', ''], layout: 'pip', active: 0, panel: true };
+  try {
+    var saved = JSON.parse(localStorage.getItem('gameday') || 'null');
+    if (saved) state = Object.assign(state, saved);
+  } catch (e) {}
+  if (params.get('s1')) state.links[0] = params.get('s1');
+  if (params.get('s2')) state.links[1] = params.get('s2');
+  function save() { try { localStorage.setItem('gameday', JSON.stringify(state)); } catch (e) {} }
+
+  var panelQuery = new URLSearchParams({ opacity: '1' });
+  if (key) panelQuery.set('key', key);
+  if (demo) panelQuery.set('demo', demo);
+  document.getElementById('panel').src = '/panel?' + panelQuery.toString();
+
+  var hlsLoading = null;
+  function loadHls() {
+    if (window.Hls) return Promise.resolve();
+    if (!hlsLoading) hlsLoading = new Promise(function (ok, fail) {
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js';
+      s.onload = ok; s.onerror = fail;
+      document.head.appendChild(s);
+    });
+    return hlsLoading;
+  }
+
+  // Turn a pasted link into something that can play in a box.
+  function toEmbed(raw) {
+    var u;
+    try { u = new URL(String(raw).trim()); } catch (e) { return null; }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    var host = u.hostname.replace(/^(www\.|m\.)/, '');
+    var id = null;
+    if (host === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
+    else if (host === 'youtube.com' || host === 'music.youtube.com') {
+      if (u.pathname === '/watch') id = u.searchParams.get('v');
+      else { var m = u.pathname.match(/^\/(live|embed|shorts)\/([\w-]{6,})/); if (m) id = m[2]; }
+    }
+    if (id) return { type: 'youtube', id: id, src: 'https://www.youtube.com/embed/' + encodeURIComponent(id) + '?autoplay=1&mute=1&playsinline=1&enablejsapi=1' };
+    if (host === 'twitch.tv') {
+      var ch = u.pathname.split('/')[1];
+      if (ch) return { type: 'frame', src: 'https://player.twitch.tv/?channel=' + encodeURIComponent(ch) + '&parent=' + location.hostname + '&muted=true' };
+    }
+    if (/\.m3u8$/i.test(u.pathname)) return { type: 'hls', src: u.href };
+    if (/\.(mp4|webm|mov|m4v)$/i.test(u.pathname)) return { type: 'video', src: u.href };
+    return { type: 'iframe', src: u.href };
+  }
+
+  var icons = {
+    sound: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg>',
+    muted: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/></svg>',
+    link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>',
+    cast: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 12a9 9 0 0 1 9 9"/><path d="M2 16a5 5 0 0 1 5 5"/><line x1="2" y1="20" x2="2.01" y2="20"/></svg>'
+  };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // Casting sends the stream link itself to the TV, so it plays at full quality.
+  // Only direct video links (.m3u8 / .mp4) can be sent this way.
+  var casting = -1;      // which box is playing on the TV
+  var pendingCast = -1;  // box waiting for the TV picker to finish
+
+  function castReady() { return !!(window.__castReady && window.cast && cast.framework); }
+  function castable(emb) { return !!emb && (emb.type === 'hls' || emb.type === 'video'); }
+
+  function castStream(i) {
+    var raw = state.links[i];
+    var emb = raw ? toEmbed(raw) : null;
+    if (!castable(emb)) {
+      alert("Only direct video links (ending in .m3u8 or .mp4) can be cast at full quality. For a website or app, use Chrome's menu > Cast instead.");
+      return;
+    }
+    if (!castReady()) {
+      alert('Casting needs Chrome or Edge on a computer or Chromebook, on the same Wi-Fi as the TV.');
+      return;
+    }
+    var ctx = cast.framework.CastContext.getInstance();
+    var session = ctx.getCurrentSession();
+    if (!session) {
+      // Open the TV picker, then send the stream once connected.
+      pendingCast = i;
+      ctx.requestSession().catch(function () { pendingCast = -1; });
+      return;
+    }
+
+    var contentType = emb.type === 'video' ? 'video/mp4' : 'application/x-mpegURL';
+    var mediaInfo = new chrome.cast.media.MediaInfo(emb.src, contentType);
+    mediaInfo.streamType = emb.type === 'hls' ? chrome.cast.media.StreamType.LIVE : chrome.cast.media.StreamType.BUFFERED;
+    mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
+    mediaInfo.metadata.title = 'Stream ' + (i + 1);
+
+    var request = new chrome.cast.media.LoadRequest(mediaInfo);
+    request.autoplay = true;
+    session.loadMedia(request).then(
+      function () {
+        casting = i;
+        var v = document.querySelector('#box' + i + ' video');
+        if (v) v.pause(); // avoid double audio; the TV is playing it now
+        updateCastChips();
+      },
+      function () {
+        casting = -1;
+        updateCastChips();
+        alert("The TV couldn't play that link. It plays here because your browser is allowed to load it, " +
+              "but many stream servers block other devices like a Chromecast, or the link has expired. " +
+              "If it keeps failing, that stream can't be cast. Use the TV overlay app or Chrome's menu > Cast instead.");
+      }
+    );
+  }
+
+  function updateCastChips() {
+    [0, 1].forEach(function (i) {
+      var chip = document.querySelector('#box' + i + ' [data-act="cast"]');
+      if (!chip) return;
+      var on = casting === i;
+      chip.classList.toggle('on', on);
+      chip.innerHTML = icons.cast + (on ? 'On TV' : 'Cast to TV');
+    });
+  }
+
+  function wireCast() {
+    var ctx = cast.framework.CastContext.getInstance();
+    ctx.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, function (e) {
+      var S = cast.framework.SessionState;
+      if ((e.sessionState === S.SESSION_STARTED || e.sessionState === S.SESSION_RESUMED) && pendingCast >= 0) {
+        var i = pendingCast; pendingCast = -1; castStream(i);
+      }
+      if (e.sessionState === S.SESSION_ENDED) { casting = -1; updateCastChips(); }
+    });
+  }
+  if (castReady()) wireCast(); else document.addEventListener('cast-ready', wireCast);
+
+  function renderBox(i) {
+    var box = document.getElementById('box' + i);
+    var link = state.links[i];
+    var emb = link ? toEmbed(link) : null;
+    box.className = 'box' + (state.active === i ? ' active' : '') + (emb && emb.type === 'iframe' ? ' iframe' : '');
+
+    if (!emb) {
+      box.innerHTML =
+        '<div class="empty"><form class="form" data-i="' + i + '">' +
+          '<label class="title" for="in' + i + '">STREAM ' + (i + 1) + '</label>' +
+          '<div class="row"><input id="in' + i + '" type="url" placeholder="Paste a link" value="' + esc(link) + '" autocomplete="off">' +
+          '<button type="submit">Play</button></div>' +
+          '<div class="hint">YouTube, Twitch, and direct video links (.m3u8, .mp4) play here. Subscription apps like Peacock, Prime, or YouTube TV block playing inside other pages, so open those in their own window.</div>' +
+        '</form></div>';
+      return;
+    }
+
+    var media;
+    if (emb.type === 'youtube' || emb.type === 'frame' || emb.type === 'iframe') {
+      media = '<iframe src="' + esc(emb.src) + '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" title="Stream ' + (i + 1) + '"></iframe>';
+    } else {
+      media = '<video playsinline autoplay muted controls></video>';
+    }
+    var soundOn = state.active === i;
+    box.innerHTML =
+      '<div class="player">' + media + '</div>' +
+      '<div class="chips">' +
+        '<button class="chip' + (soundOn ? ' on' : '') + '" data-act="sound" data-i="' + i + '">' + (soundOn ? icons.sound + 'Sound on' : icons.muted + 'Sound here') + '</button>' +
+        (castable(emb) ? '<button class="chip' + (casting === i ? ' on' : '') + '" data-act="cast" data-i="' + i + '">' + icons.cast + (casting === i ? 'On TV' : 'Cast to TV') + '</button>' : '') +
+        '<button class="chip" data-act="change" data-i="' + i + '">' + icons.link + 'Change link</button>' +
+      '</div>' +
+      '<div class="blocked">If this stays blank, that site doesn’t allow playing inside other pages. Open it in its own window instead.</div>';
+
+    if (emb.type === 'video' || emb.type === 'hls') {
+      var v = box.querySelector('video');
+      v.muted = !soundOn;
+      if (emb.type === 'video' || v.canPlayType('application/vnd.apple.mpegurl')) {
+        v.src = emb.src;
+      } else {
+        loadHls().then(function () {
+          if (window.Hls && window.Hls.isSupported()) { var h = new window.Hls(); h.loadSource(emb.src); h.attachMedia(v); }
+        }).catch(function () {});
+      }
+    }
+    if (emb.type === 'youtube') {
+      box.querySelector('iframe').addEventListener('load', function () { applySound(); });
+    }
+  }
+
+  // YouTube boxes accept mute/unmute commands; video files are muted directly.
+  function applySound() {
+    [0, 1].forEach(function (i) {
+      var box = document.getElementById('box' + i);
+      var on = state.active === i;
+      var f = box.querySelector('iframe');
+      var v = box.querySelector('video');
+      if (v) v.muted = !on;
+      if (f && /youtube\.com\/embed/.test(f.src)) {
+        try { f.contentWindow.postMessage(JSON.stringify({ event: 'command', func: on ? 'unMute' : 'mute', args: [] }), '*'); } catch (e) {}
+      }
+      var chip = box.querySelector('[data-act="sound"]');
+      if (chip) {
+        chip.classList.toggle('on', on);
+        chip.innerHTML = on ? icons.sound + 'Sound on' : icons.muted + 'Sound here';
+      }
+      box.classList.toggle('active', on);
+    });
+  }
+
+  function renderAll() {
+    var stage = document.getElementById('stage');
+    stage.setAttribute('data-layout', state.layout);
+    document.querySelectorAll('#layouts button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-layout') === state.layout));
+    });
+    document.getElementById('app').classList.toggle('nopanel', !state.panel);
+    document.getElementById('panelBtn').setAttribute('aria-pressed', String(state.panel));
+    renderBox(0);
+    renderBox(1);
+  }
+
+  document.addEventListener('submit', function (e) {
+    var f = e.target.closest('form[data-i]');
+    if (!f) return;
+    e.preventDefault();
+    var i = Number(f.getAttribute('data-i'));
+    var val = f.querySelector('input').value.trim();
+    if (!toEmbed(val)) { f.querySelector('input').setCustomValidity('That doesn’t look like a link'); f.querySelector('input').reportValidity(); return; }
+    state.links[i] = val;
+    state.active = i;
+    save();
+    renderBox(i);
+    renderBox(1 - i);
+  });
+
+  document.addEventListener('input', function (e) { if (e.target.setCustomValidity) e.target.setCustomValidity(''); });
+
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('button, google-cast-launcher');
+    if (!b) return;
+    if (b.closest('#layouts')) {
+      state.layout = b.getAttribute('data-layout');
+      if (state.layout === 'one') state.active = 0;
+      save(); renderAll(); return;
+    }
+    var act = b.getAttribute('data-act');
+    var i = Number(b.getAttribute('data-i'));
+    if (act === 'sound') { state.active = i; save(); applySound(); return; }
+    if (act === 'cast') { castStream(i); return; }
+    if (act === 'change') { state.links[i] = ''; save(); renderBox(i); var inp = document.getElementById('in' + i); if (inp) inp.focus(); return; }
+    if (b.id === 'swapBtn') { state.links.reverse(); state.active = 1 - state.active; save(); renderAll(); return; }
+    if (b.id === 'panelBtn') { state.panel = !state.panel; save(); renderAll(); return; }
+    if (b.id === 'fsBtn') {
+      if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(function () {});
+    }
+  });
+
+  // Play/pause key on a keyboard or remote. (Enter already presses buttons on its own.)
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'MediaPlayPause') {
+      var v = document.querySelector('.box.active video');
+      if (v) v.paused ? v.play() : v.pause();
+    }
+  });
+
+  // Toolbar and chips appear when the mouse moves, then fade away.
+  var hideTimer = null;
+  function poke() {
+    document.body.classList.add('showui');
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(function () {
+      if (!document.querySelector('.bar:hover')) document.body.classList.remove('showui');
+    }, 3000);
+  }
+  document.addEventListener('mousemove', poke);
+  document.addEventListener('keydown', poke);
+  poke();
+
+  renderAll();
+})();
+</script>
+</body>
+</html>

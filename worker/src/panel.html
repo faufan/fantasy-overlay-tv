@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fantasy Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: rgba(9, 12, 18, 0.9);
+    --card: rgba(255, 255, 255, 0.045);
+    --edge: rgba(255, 255, 255, 0.08);
+    --text: #F3F5F8;
+    --muted: #9AA4B2;
+    --dim: #5E6876;
+    --me: #5AA9FF;
+    --opp: #FF9A4D;
+    --good: #3DDC84;
+    --good-text: #72F0AA;
+    --bad-text: #FF8A8A;
+    --live: #FF5A5A;
+    /* One sizing unit, scaled to the panel's height. */
+    --u: min(1vh, 2.2vw);
+  }
+  /* Wide, short windows (a laptop or Chromebook window): keep text readable and let the list scroll. */
+  @media (min-aspect-ratio: 3/4) {
+    :root { --u: max(min(1vh, 2.2vw), 7.5px); }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body { font-family: 'Barlow', system-ui, sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+  .cond { font-family: 'Barlow Condensed', 'Barlow', sans-serif; }
+
+  .panel {
+    height: 100%;
+    background: var(--bg);
+    border-left: 1px solid var(--edge);
+    display: flex;
+    flex-direction: column;
+    gap: calc(1.6 * var(--u));
+    padding: calc(2.6 * var(--u)) calc(2.2 * var(--u)) calc(1.8 * var(--u));
+  }
+
+  .top { display: flex; align-items: center; justify-content: space-between; gap: calc(1 * var(--u)); }
+  .badge { display: inline-flex; align-items: center; gap: calc(0.8 * var(--u)); padding: calc(0.45 * var(--u)) calc(1 * var(--u)); border-radius: 999px; background: var(--card); border: 1px solid var(--edge); font-weight: 600; font-size: calc(1.45 * var(--u)); letter-spacing: calc(0.15 * var(--u)); color: #D3D9E1; }
+  .dot { width: calc(0.8 * var(--u)); height: calc(0.8 * var(--u)); border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.on { background: var(--live); box-shadow: 0 0 0 calc(0.35 * var(--u)) rgba(255, 90, 90, 0.18); }
+  .league { font-size: calc(1.4 * var(--u)); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+  .board { background: var(--card); border: 1px solid var(--edge); border-radius: calc(1.4 * var(--u)); padding: calc(1.6 * var(--u)); display: flex; flex-direction: column; gap: calc(1.2 * var(--u)); }
+  .names { display: flex; justify-content: space-between; gap: calc(1.5 * var(--u)); font-weight: 600; font-size: calc(1.5 * var(--u)); }
+  .names div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 48%; }
+  .names .a { color: var(--me); }
+  .names .b { color: var(--opp); text-align: right; }
+  .scoreline { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: calc(1 * var(--u)); }
+  .score { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: calc(6 * var(--u)); line-height: 0.95; letter-spacing: -0.01em; }
+  .score.b { text-align: right; color: #E2E6EB; }
+  .proj { font-size: calc(1.3 * var(--u)); color: var(--muted); margin-top: calc(0.4 * var(--u)); }
+  .proj.b { text-align: right; }
+  .margin { display: flex; flex-direction: column; align-items: center; gap: calc(0.2 * var(--u)); padding: calc(0.7 * var(--u)) calc(1.2 * var(--u)); border-radius: calc(1 * var(--u)); background: rgba(255, 255, 255, 0.06); min-width: calc(8 * var(--u)); }
+  .margin .word { font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: calc(1.3 * var(--u)); letter-spacing: calc(0.2 * var(--u)); }
+  .margin .num { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: calc(3.2 * var(--u)); line-height: 1; }
+  .margin.up { background: rgba(61, 220, 132, 0.13); color: var(--good-text); }
+  .margin.down { background: rgba(255, 107, 107, 0.13); color: var(--bad-text); }
+  .margin.tied { color: #D3D9E1; }
+  .bar { display: flex; height: calc(0.7 * var(--u)); border-radius: 999px; overflow: hidden; background: #1E2530; gap: 2px; }
+  .bar .a { background: var(--me); transition: width 1s ease; }
+  .bar .b { background: var(--opp); transition: width 1s ease; }
+  .outlook { text-align: center; font-size: calc(1.45 * var(--u)); color: #D3D9E1; }
+  .left { display: flex; justify-content: space-between; font-size: calc(1.25 * var(--u)); color: var(--muted); }
+
+  .alert { display: none; align-items: center; justify-content: space-between; gap: calc(1.2 * var(--u)); padding: calc(1.1 * var(--u)) calc(1.4 * var(--u)); border-radius: calc(1.2 * var(--u)); border: 1px solid var(--good); background: rgba(61, 220, 132, 0.12); }
+  .alert.opp { border-color: var(--opp); background: rgba(255, 154, 77, 0.12); }
+  .alert.show { display: flex; animation: pop 0.35s ease-out; }
+  .alert .label { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: calc(1.6 * var(--u)); letter-spacing: calc(0.18 * var(--u)); color: var(--good-text); }
+  .alert.opp .label, .alert.opp .delta { color: #FFB57A; }
+  .alert .who { font-size: calc(1.4 * var(--u)); color: #E2E6EB; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .alert .delta { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: calc(3 * var(--u)); color: var(--good-text); }
+  @keyframes pop { from { transform: translateY(calc(-1 * var(--u))); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  .h2h { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: calc(0.5 * var(--u)); overflow-y: auto; scrollbar-width: none; }
+  .h2h::-webkit-scrollbar { display: none; }
+  .row { display: grid; grid-template-columns: 1fr calc(4.6 * var(--u)) 1fr; align-items: stretch; border-radius: calc(0.9 * var(--u)); background: var(--card); overflow: hidden; }
+  .cell { display: flex; align-items: center; gap: calc(0.8 * var(--u)); padding: calc(0.75 * var(--u)) calc(1 * var(--u)); min-width: 0; transition: background 1s ease; }
+  .cell.b { flex-direction: row-reverse; text-align: right; }
+  .cell.hot { background: rgba(61, 220, 132, 0.16); }
+  .cell.b.hot { background: rgba(255, 154, 77, 0.16); }
+  .who2 { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: calc(0.15 * var(--u)); }
+  .pname { font-size: calc(1.5 * var(--u)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .inj { color: #FFB57A; font-size: calc(1.1 * var(--u)); font-weight: 600; margin: 0 calc(0.4 * var(--u)); }
+  .meta { display: flex; align-items: center; gap: calc(0.5 * var(--u)); font-size: calc(1.15 * var(--u)); color: var(--muted); white-space: nowrap; min-width: 0; }
+  .meta .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .cell.b .meta { flex-direction: row-reverse; }
+  .meta .dot { width: calc(0.6 * var(--u)); height: calc(0.6 * var(--u)); }
+  .meta .dot.in { background: var(--live); }
+  .pts { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: calc(2.3 * var(--u)); line-height: 1; flex: none; min-width: calc(3.6 * var(--u)); text-align: right; }
+  .cell.b .pts { text-align: left; }
+  .pts.lead { color: #FFFFFF; }
+  .pts.trail { color: #8D97A5; }
+  .slot { display: flex; align-items: center; justify-content: center; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: calc(1.25 * var(--u)); color: var(--muted); background: rgba(255, 255, 255, 0.03); border-left: 1px solid var(--edge); border-right: 1px solid var(--edge); }
+  .cell.empty { color: var(--dim); font-size: calc(1.3 * var(--u)); }
+
+  .extras { display: flex; flex-direction: column; gap: calc(0.6 * var(--u)); }
+  .extras:empty { display: none; }
+  .xrow { display: flex; align-items: center; gap: calc(0.9 * var(--u)); padding: calc(0.8 * var(--u)) calc(1.1 * var(--u)); border-radius: calc(0.9 * var(--u)); background: var(--card); font-size: calc(1.3 * var(--u)); min-width: 0; }
+  .xrow .txt { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tag { flex: none; font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: calc(1.15 * var(--u)); letter-spacing: calc(0.12 * var(--u)); padding: calc(0.25 * var(--u)) calc(0.7 * var(--u)); border-radius: calc(0.5 * var(--u)); }
+  .xrow.rz { background: rgba(255, 90, 90, 0.12); }
+  .xrow.rz .tag { background: rgba(255, 90, 90, 0.22); color: #FF9A9A; }
+  .xrow.rz.them .tag { background: rgba(255, 154, 77, 0.22); color: #FFB57A; }
+  .xrow.next .tag { background: rgba(90, 169, 255, 0.18); color: #9CCBFF; }
+  .xrow b { font-weight: 600; color: var(--text); }
+
+  /* Modes: full (everything), score (top card only), auto (score, opens on big plays), off (hidden).
+     The window is see-through, so whatever is hidden here shows the game instead. */
+  body[data-mode="score"] .panel,
+  body[data-mode="auto"]:not(.expanded) .panel { background: transparent; border-left: 0; }
+  body[data-mode="score"] .top, body[data-mode="score"] .h2h, body[data-mode="score"] .extras, body[data-mode="score"] .foot,
+  body[data-mode="auto"]:not(.expanded) .top, body[data-mode="auto"]:not(.expanded) .h2h,
+  body[data-mode="auto"]:not(.expanded) .extras, body[data-mode="auto"]:not(.expanded) .foot { display: none; }
+  body[data-mode="score"] .board,
+  body[data-mode="auto"]:not(.expanded) .board { background: rgba(12, 16, 24, 0.94); box-shadow: 0 calc(0.8 * var(--u)) calc(3 * var(--u)) rgba(0, 0, 0, 0.45); }
+  body[data-mode="score"] .alert,
+  body[data-mode="auto"]:not(.expanded) .alert { background: #10291C; }
+  body[data-mode="score"] .alert.opp,
+  body[data-mode="auto"]:not(.expanded) .alert.opp { background: #2E2013; }
+  body[data-mode="off"] .panel { visibility: hidden; }
+
+  .foot { display: flex; justify-content: space-between; gap: calc(1 * var(--u)); font-size: calc(1.15 * var(--u)); color: var(--dim); }
+  .err { color: #FFB57A; }
+  .empty-state { margin: auto 0; font-size: calc(1.7 * var(--u)); color: var(--muted); text-align: center; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="panel">
+  <div class="top">
+    <div class="badge cond"><div class="dot" id="liveDot"></div><span id="week">FANTASY</span></div>
+    <div class="league" id="league"></div>
+  </div>
+
+  <div class="board">
+    <div class="names"><div class="a" id="meName">Your team</div><div class="b" id="oppName">Opponent</div></div>
+    <div class="scoreline">
+      <div><div class="score" id="meScore">–</div><div class="proj" id="meProj"></div></div>
+      <div class="margin tied" id="margin"><div class="word" id="marginWord">TIED</div><div class="num" id="marginNum">0.0</div></div>
+      <div><div class="score b" id="oppScore">–</div><div class="proj b" id="oppProj"></div></div>
+    </div>
+    <div class="bar"><div class="a" id="barA" style="width:50%"></div><div class="b" id="barB" style="width:50%"></div></div>
+    <div class="outlook" id="outlook">Loading…</div>
+    <div class="left"><div id="leftA"></div><div id="leftB"></div></div>
+  </div>
+
+  <div class="alert" id="alert">
+    <div style="min-width:0">
+      <div class="label" id="alertLabel">POINTS</div>
+      <div class="who" id="alertWho"></div>
+    </div>
+    <div class="delta" id="alertDelta"></div>
+  </div>
+
+  <div class="h2h" id="h2h"><div class="empty-state">Loading your matchup…</div></div>
+
+  <div class="extras" id="extras"></div>
+
+  <div class="foot"><div id="updated">Connecting…</div><div id="status"></div></div>
+</div>
+
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var every = Math.max(10, Number(params.get('every')) || 20) * 1000;
+  var alertMin = Number(params.get('alert')) || 2;
+  if (params.get('opacity')) document.documentElement.style.setProperty('--bg', 'rgba(9, 12, 18, ' + Number(params.get('opacity')) + ')');
+
+  var apiQuery = new URLSearchParams();
+  ['key', 'demo'].forEach(function (k) { if (params.get(k)) apiQuery.set(k, params.get(k)); });
+  var api = '/api/matchup' + (apiQuery.toString() ? '?' + apiQuery.toString() : '');
+
+  var prev = null, hotUntil = {}, alertTimer = null, lastOk = 0, expandTimer = null;
+
+  // Display mode. The TV app calls window.setMode('full' | 'score' | 'auto' | 'off').
+  var MODES = { full: 1, score: 1, auto: 1, off: 1 };
+  window.setMode = function (m) {
+    if (!MODES[m]) return;
+    document.body.setAttribute('data-mode', m);
+    if (m !== 'auto') { document.body.classList.remove('expanded'); clearTimeout(expandTimer); }
+  };
+  window.setMode(MODES[params.get('mode')] ? params.get('mode') : 'full');
+
+  // In auto mode, open the full panel for a bit when someone scores.
+  function expandForPlay() {
+    if (document.body.getAttribute('data-mode') !== 'auto') return;
+    document.body.classList.add('expanded');
+    clearTimeout(expandTimer);
+    expandTimer = setTimeout(function () { document.body.classList.remove('expanded'); }, 20000);
+  }
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmt(n) { return (Math.round((n || 0) * 10) / 10).toFixed(1); }
+  function shortName(n) {
+    if (!n || /D\/ST$/.test(n)) return n || '';
+    var parts = n.split(' ');
+    if (parts.length < 2) return n;
+    var rest = parts.slice(1).filter(function (x) { return !/^(Jr\.?|Sr\.?|II|III|IV|V)$/i.test(x); });
+    return parts[0].charAt(0) + '. ' + (rest.join(' ') || parts[1]);
+  }
+  function remaining(side) { return (side.playing || 0) + (side.yetToPlay || 0); }
+
+  function showAlert(hit) {
+    var el = $('alert');
+    el.classList.toggle('opp', hit.side === 'b');
+    $('alertLabel').textContent = (hit.side === 'b' ? 'THEM · ' : '') + (hit.delta >= 6 ? 'BIG PLAY' : 'POINTS');
+    $('alertWho').textContent = hit.p.name + (hit.p.game ? ' · ' + hit.p.game : '');
+    $('alertDelta').textContent = '+' + fmt(hit.delta);
+    el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+    clearTimeout(alertTimer);
+    alertTimer = setTimeout(function () { el.classList.remove('show'); }, 25000);
+  }
+
+  function pairRows(a, b) {
+    var order = [], groups = {};
+    function add(list, side) {
+      (list || []).forEach(function (p) {
+        if (!groups[p.slot]) { groups[p.slot] = { a: [], b: [] }; order.push(p.slot); }
+        groups[p.slot][side].push(p);
+      });
+    }
+    add(a, 'a'); add(b, 'b');
+    var rows = [];
+    order.forEach(function (slot) {
+      var g = groups[slot], n = Math.max(g.a.length, g.b.length);
+      for (var i = 0; i < n; i++) rows.push({ slot: slot, a: g.a[i] || null, b: g.b[i] || null });
+    });
+    return rows;
+  }
+
+  function cell(p, side, other, now) {
+    if (!p) return '<div class="cell ' + side + ' empty">—</div>';
+    var hot = hotUntil[side + ':' + p.name] > now;
+    var lead = other ? (p.pts > other.pts ? 'lead' : p.pts < other.pts ? 'trail' : '') : '';
+    var status = p.state === 'post' ? 'Final' : (p.detail || '');
+    var meta = [p.team, status].filter(Boolean).join(' · ');
+    return '<div class="cell ' + side + (hot ? ' hot' : '') + '">' +
+      '<div class="who2"><div class="pname">' + esc(shortName(p.name)) +
+        (p.injury ? '<span class="inj">' + esc(p.injury.charAt(0)) + '</span>' : '') + '</div>' +
+        '<div class="meta"><div class="dot ' + esc(p.state) + '"></div><div class="txt">' + esc(meta) + '</div></div></div>' +
+      '<div class="pts ' + lead + '">' + fmt(p.pts) + '</div>' +
+    '</div>';
+  }
+
+  // Bottom lines: players in the red zone, then the next kickoff.
+  function extras(me, opp) {
+    var out = [];
+    [['a', me.starters], ['b', opp.starters]].forEach(function (pair) {
+      (pair[1] || []).forEach(function (p) {
+        if (!p.redZone) return;
+        out.push('<div class="xrow rz' + (pair[0] === 'b' ? ' them' : '') + '"><span class="tag">' +
+          (pair[0] === 'b' ? 'THEM · RED ZONE' : 'RED ZONE') + '</span><span class="txt"><b>' +
+          esc(shortName(p.name)) + '</b> · ' + esc(p.team) + ' ' + esc(p.redZone) + '</span></div>');
+      });
+    });
+    out = out.slice(0, 3);
+
+    var soonest = null;
+    (me.starters || []).concat(opp.starters || []).forEach(function (p) {
+      if (p.state === 'pre' && p.kick && (!soonest || p.kick < soonest.kick)) soonest = p;
+    });
+    if (soonest) {
+      var count = function (list) { return (list || []).filter(function (p) { return p.state === 'pre' && p.kick === soonest.kick; }).length; };
+      out.push('<div class="xrow next"><span class="tag">NEXT UP</span><span class="txt"><b>' + esc(soonest.detail) +
+        '</b> · You ' + count(me.starters) + ' · Them ' + count(opp.starters) + '</span></div>');
+    }
+    return out.join('');
+  }
+
+  function render(d) {
+    var me = d.me || { starters: [] }, opp = d.opp || { starters: [] };
+    var now = Date.now();
+
+    $('week').textContent = (d.demo ? 'DEMO · ' : '') + 'WEEK ' + (d.week || '');
+    $('league').textContent = d.league || '';
+    $('meName').textContent = me.name || 'Your team';
+    $('oppName').textContent = opp.name || 'Opponent';
+    $('meScore').textContent = fmt(me.score);
+    $('oppScore').textContent = fmt(opp.score);
+    $('meProj').textContent = 'Proj ' + fmt(me.proj);
+    $('oppProj').textContent = 'Proj ' + fmt(opp.proj);
+
+    var diff = (me.score || 0) - (opp.score || 0);
+    var m = $('margin');
+    m.className = 'margin ' + (diff > 0.05 ? 'up' : diff < -0.05 ? 'down' : 'tied');
+    $('marginWord').textContent = diff > 0.05 ? 'UP' : diff < -0.05 ? 'DOWN' : 'TIED';
+    $('marginNum').textContent = fmt(Math.abs(diff));
+
+    var done = remaining(me) === 0 && remaining(opp) === 0 && ((me.starters || []).length > 0);
+    var pd = (me.proj || 0) - (opp.proj || 0);
+    $('outlook').textContent = done
+      ? (diff > 0 ? 'Final · You won by ' + fmt(diff) : diff < 0 ? 'Final · You lost by ' + fmt(-diff) : 'Final · Tie')
+      : (pd >= 0 ? 'Projected to win by ' + fmt(pd) : 'Projected to lose by ' + fmt(-pd));
+
+    var a = Math.max(0, me.proj || 0), b = Math.max(0, opp.proj || 0);
+    var pa = a + b > 0 ? Math.round((a / (a + b)) * 100) : 50;
+    $('barA').style.width = pa + '%';
+    $('barB').style.width = (100 - pa) + '%';
+    $('leftA').textContent = (me.playing || 0) + ' playing · ' + (me.yetToPlay || 0) + ' to go';
+    $('leftB').textContent = (opp.playing || 0) + ' playing · ' + (opp.yetToPlay || 0) + ' to go';
+    $('liveDot').className = 'dot' + ((me.playing || 0) + (opp.playing || 0) > 0 ? ' on' : '');
+
+    // Scoring changes since the last refresh.
+    var next = {}, best = null;
+    [['a', me.starters], ['b', opp.starters]].forEach(function (pair) {
+      (pair[1] || []).forEach(function (p) {
+        var key = pair[0] + ':' + p.name;
+        next[key] = p.pts;
+        if (prev && prev[key] != null) {
+          var delta = (p.pts || 0) - prev[key];
+          if (delta >= alertMin) {
+            hotUntil[key] = now + 60000;
+            var score = delta + (pair[0] === 'a' ? 0.01 : 0); // your players win ties
+            if (!best || score > best.score) best = { side: pair[0], p: p, delta: delta, score: score };
+          }
+        }
+      });
+    });
+    prev = next;
+    if (best) { showAlert(best); if (best.delta >= 6) expandForPlay(); }
+
+    $('extras').innerHTML = extras(me, opp);
+
+    var rows = pairRows(me.starters, opp.starters).map(function (r) {
+      return '<div class="row">' + cell(r.a, 'a', r.b, now) + '<div class="slot">' + esc(r.slot) + '</div>' + cell(r.b, 'b', r.a, now) + '</div>';
+    });
+    $('h2h').innerHTML = rows.length ? rows.join('') : '<div class="empty-state">No starters found for this week.</div>';
+  }
+
+  function tickClock() {
+    if (!lastOk) return;
+    var s = Math.round((Date.now() - lastOk) / 1000);
+    $('updated').textContent = 'ESPN · updated ' + (s < 60 ? s + 's' : Math.round(s / 60) + 'm') + ' ago';
+  }
+
+  function load() {
+    fetch(api, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.error) throw new Error(d.error);
+        render(d);
+        lastOk = Date.now();
+        $('status').textContent = '';
+        tickClock();
+      })
+      .catch(function (e) {
+        $('status').innerHTML = '<span class="err">' + esc(e.message || 'Offline') + '</span>';
+        if (!lastOk) $('h2h').innerHTML = '<div class="empty-state">Can’t load the matchup yet.<br>' + esc(e.message || '') + '</div>';
+      })
+      .then(function () { setTimeout(load, every); });
+  }
+
+  setInterval(tickClock, 5000);
+  load();
+})();
+</script>
+</body>
+</html>

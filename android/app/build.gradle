@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'org.plasterfamily.fantasyoverlay'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'org.plasterfamily.fantasyoverlay'
+        minSdk 26
+        targetSdk 34
+        versionCode 2
+        versionName '1.1'
+    }
+
+    // One fixed key in the repo, so every GitHub build installs as an update
+    // instead of needing an uninstall. Fine for a private, sideloaded family app.
+    signingConfigs {
+        shared {
+            storeFile file('fantasy.keystore')
+            storeType 'pkcs12'
+            storePassword 'fantasyoverlay'
+            keyAlias 'fantasy'
+            keyPassword 'fantasyoverlay'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.shared
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.shared
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

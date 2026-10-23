@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Fantasy Overlay</string>
+    <!-- The page the overlay shows. Can also be changed later from Home Assistant: /set?url=... -->
+    <string name="default_url">https://fantasy-panel.faufan.workers.dev/panel</string>
+    <string name="widget_desc">Your fantasy score, plus Full / Score / Auto / Off for the TV panel</string>
+</resources>

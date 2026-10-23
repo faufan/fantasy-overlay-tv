@@ -1,0 +1,20 @@
+name = "fantasy-panel"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Serves https://fantasy.plasterfamily.org (Cloudflare creates the DNS record on deploy).
+routes = [{ pattern = "fantasy.plasterfamily.org", custom_domain = true }]
+
+# Lets the Worker import panel.html as a string.
+rules = [{ type = "Text", globs = ["**/*.html"], fallthrough = true }]
+
+[vars]
+# From your league URL: fantasy.espn.com/football/team?leagueId=XXXXXXX&teamId=Y
+LEAGUE_ID = "CHANGE_ME"
+TEAM_ID = "CHANGE_ME"
+# SEASON = "2026"   # optional; worked out automatically
+
+# Secrets (never put these in this file):
+#   npx wrangler secret put ESPN_S2      # private leagues only
+#   npx wrangler secret put SWID         # private leagues only, include the {braces}
+#   npx wrangler secret put ACCESS_KEY   # optional; then add ?key=... to the panel URL
