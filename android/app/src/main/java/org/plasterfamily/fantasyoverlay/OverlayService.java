@@ -200,12 +200,23 @@ public class OverlayService extends Service {
         if (!Prefs.validMode(m)) return;
         prefs.setMode(m);
         if (!isShowing() && !"off".equals(m)) show();
-        applyMode();
+        applyMode(true);
     }
 
-    void applyMode() {
+    void applyMode() { applyMode(false); }
+
+    /**
+     * Tells the page which mode to show. If the page is an older copy without modes
+     * (loaded before a Worker update), reload it once so the new version takes over.
+     */
+    void applyMode(boolean reloadIfOld) {
+        if (web == null) return;
+        final WebView view = web;
         // The mode is checked against a fixed list, so it is safe to put in the script.
-        if (web != null) web.evaluateJavascript("window.setMode && window.setMode('" + prefs.mode() + "')", null);
+        String js = "(typeof window.setMode === 'function') ? (window.setMode('" + prefs.mode() + "'), 'ok') : 'old'";
+        view.evaluateJavascript(js, result -> {
+            if (reloadIfOld && "\"old\"".equals(result) && view == web) view.reload();
+        });
     }
 
     /** Re-create the window so new width/side/url settings take effect. */
