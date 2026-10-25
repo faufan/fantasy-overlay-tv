@@ -1,5 +1,6 @@
 package org.plasterfamily.fantasyoverlay;
 
+import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
@@ -8,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.SystemClock;
 import android.widget.RemoteViews;
 
 import org.json.JSONObject;
@@ -18,19 +20,23 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Phone home-screen widget: the matchup score card plus Full / Score / Auto / Off buttons.
- * A button press tells the TV app (port 8765 on the home Wi-Fi) which mode to show,
- * then refreshes the score from the Cloudflare Worker.
+ * Phone home-screen widget: the score card, Full / Score / Auto / Off, and a background button.
+ * Refreshes itself about every minute while games are on, every 15 minutes before kickoff,
+ * and every few hours when the week is done.
  */
 public class ScoreWidget extends AppWidgetProvider {
     static final String ACTION_MODE = "org.plasterfamily.fantasyoverlay.WIDGET_MODE";
+    static final String ACTION_BG = "org.plasterfamily.fantasyoverlay.WIDGET_BG";
     static final String ACTION_REFRESH = "org.plasterfamily.fantasyoverlay.WIDGET_REFRESH";
     static final String EXTRA_MODE = "mode";
+
+    private static final long LIVE_MS = 60_000L;
+    private static final long PENDING_MS = 15 * 60_000L;
+    private static final long IDLE_MS = 3 * 60 * 60_000L;
 
     private static final ExecutorService IO = Executors.newSingleThreadExecutor();
 
@@ -43,14 +49,27 @@ public class ScoreWidget extends AppWidgetProvider {
     }
 
     @Override
+    public void onDisabled(Context context) {
+        AlarmManager am = context.getSystemService(AlarmManager.class);
+        if (am != null) am.cancel(refreshIntent(context.getApplicationContext()));
+    }
+
+    @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
+        Prefs prefs = new Prefs(context);
         if (ACTION_MODE.equals(action)) {
             String mode = intent.getStringExtra(EXTRA_MODE);
             if (Prefs.validMode(mode)) {
-                new Prefs(context).setMode(mode);
-                refresh(context, mode, goAsync());
+                prefs.setMode(mode);
+                refresh(context, "/mode?m=" + mode, goAsync());
             }
+            return;
+        }
+        if (ACTION_BG.equals(action)) {
+            String next = Prefs.nextBg(prefs.bg());
+            prefs.setBg(next);
+            refresh(context, "/bg?v=" + next, goAsync());
             return;
         }
         if (ACTION_REFRESH.equals(action)) {
@@ -62,51 +81,66 @@ public class ScoreWidget extends AppWidgetProvider {
 
     /** Ask every widget to redraw (used after settings change in the app). */
     static void refreshAll(Context context) {
-        Intent i = new Intent(context, ScoreWidget.class).setAction(ACTION_REFRESH);
-        context.sendBroadcast(i);
+        context.sendBroadcast(new Intent(context, ScoreWidget.class).setAction(ACTION_REFRESH));
     }
 
-    private static void refresh(Context context, String sendMode, PendingResult pending) {
+    private static void refresh(Context context, String tvPath, PendingResult pending) {
         final Context app = context.getApplicationContext();
         final Prefs prefs = new Prefs(app);
-
-        // Draw right away with the last data so the button highlight feels instant.
-        draw(app, parse(prefs.lastMatchup()), sendMode != null ? "Sending to TV…" : null);
+        draw(app, parse(prefs.lastMatchup()), tvPath != null ? "Sending to TV…" : null);
 
         IO.execute(() -> {
             String note = null;
+            JSONObject data = null;
             try {
-                if (sendMode != null) note = sendModeToTv(prefs, sendMode);
-                JSONObject data = fetchMatchup(prefs);
+                if (tvPath != null) {
+                    TvClient.Result r = TvClient.send(app, tvPath);
+                    note = r.error;
+                    syncFromTv(prefs, r.body);
+                }
+                data = fetchMatchup(prefs);
                 prefs.setLastMatchup(data.toString());
                 draw(app, data, note);
             } catch (Exception e) {
-                draw(app, parse(prefs.lastMatchup()), note != null ? note : "Couldn't update the score");
+                data = parse(prefs.lastMatchup());
+                draw(app, data, note != null ? note : "Couldn't update the score");
             } finally {
+                scheduleNext(app, Matchup.from(data));
                 pending.finish();
             }
         });
     }
 
-    /** Returns a problem message, or null when the TV accepted the change. */
-    private static String sendModeToTv(Prefs prefs, String mode) {
-        String tv = prefs.tvAddress();
-        if (tv.isEmpty()) return "Add the TV address in the app";
-        String host = tv.contains(":") ? tv : tv + ":" + Prefs.PORT;
+    /** Keep the phone's idea of mode/background in step with what the TV reports. */
+    static void syncFromTv(Prefs prefs, String body) {
+        if (body == null) return;
         try {
-            URL url = new URL("http://" + host + "/mode?m=" + URLEncoder.encode(mode, "UTF-8"));
-            HttpURLConnection c = (HttpURLConnection) url.openConnection();
-            c.setConnectTimeout(3000);
-            c.setReadTimeout(3000);
-            int code = c.getResponseCode();
-            c.disconnect();
-            return code == 200 ? null : "The TV didn't accept that";
-        } catch (Exception e) {
-            return "Can't reach the TV. Same Wi-Fi?";
-        }
+            JSONObject o = new JSONObject(body);
+            if (o.has("mode")) prefs.setMode(o.optString("mode"));
+            if (o.has("bg")) prefs.setBg(o.optString("bg"));
+        } catch (Exception ignored) { }
     }
 
-    private static JSONObject fetchMatchup(Prefs prefs) throws Exception {
+    private static PendingIntent refreshIntent(Context app) {
+        Intent i = new Intent(app, ScoreWidget.class).setAction(ACTION_REFRESH);
+        return PendingIntent.getBroadcast(app, 300, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /**
+     * Schedule the next refresh. Uses a non-waking alarm, so it never wakes a sleeping phone;
+     * if the phone was asleep, the refresh happens as soon as it wakes up.
+     */
+    private static void scheduleNext(Context app, Matchup m) {
+        int[] ids = AppWidgetManager.getInstance(app).getAppWidgetIds(new ComponentName(app, ScoreWidget.class));
+        if (ids.length == 0) return;
+        AlarmManager am = app.getSystemService(AlarmManager.class);
+        if (am == null) return;
+        long delay = m.live ? LIVE_MS : m.pending ? PENDING_MS : IDLE_MS;
+        long at = SystemClock.elapsedRealtime() + delay;
+        am.setWindow(AlarmManager.ELAPSED_REALTIME, at, Math.max(10_000L, delay / 6), refreshIntent(app));
+    }
+
+    static JSONObject fetchMatchup(Prefs prefs) throws Exception {
         Uri panel = Uri.parse(prefs.url());
         Uri.Builder b = new Uri.Builder().scheme(panel.getScheme() == null ? "https" : panel.getScheme())
                 .encodedAuthority(panel.getEncodedAuthority())
@@ -130,13 +164,9 @@ public class ScoreWidget extends AppWidgetProvider {
         return o;
     }
 
-    private static JSONObject parse(String s) {
+    static JSONObject parse(String s) {
         if (s == null || s.isEmpty()) return null;
         try { return new JSONObject(s); } catch (Exception e) { return null; }
-    }
-
-    private static String fmt(double v) {
-        return String.format(Locale.US, "%.1f", Math.round(v * 10) / 10.0);
     }
 
     private static void draw(Context app, JSONObject data, String note) {
@@ -144,79 +174,55 @@ public class ScoreWidget extends AppWidgetProvider {
         RemoteViews v = new RemoteViews(app.getPackageName(), R.layout.widget_score);
 
         if (data != null) {
-            JSONObject me = data.optJSONObject("me");
-            JSONObject opp = data.optJSONObject("opp");
-            if (me == null) me = new JSONObject();
-            if (opp == null) opp = new JSONObject();
-
-            double ms = me.optDouble("score", 0), os = opp.optDouble("score", 0);
-            double mp = me.optDouble("proj", 0), op = opp.optDouble("proj", 0);
-            double diff = ms - os;
-
-            v.setTextViewText(R.id.week, "WEEK " + data.optInt("week", 0));
-            v.setTextViewText(R.id.league, data.optString("league", ""));
-            v.setTextViewText(R.id.meName, me.optString("name", "Your team"));
-            v.setTextViewText(R.id.oppName, opp.optString("name", "Opponent"));
-            v.setTextViewText(R.id.meScore, fmt(ms));
-            v.setTextViewText(R.id.oppScore, fmt(os));
-            v.setTextViewText(R.id.meProj, "Proj " + fmt(mp));
-            v.setTextViewText(R.id.oppProj, "Proj " + fmt(op));
-
-            if (diff > 0.05) {
-                v.setTextViewText(R.id.marginWord, "UP");
-                v.setInt(R.id.marginBox, "setBackgroundResource", R.drawable.widget_margin_up);
-                v.setTextColor(R.id.marginWord, Color.parseColor("#72F0AA"));
-                v.setTextColor(R.id.marginNum, Color.parseColor("#72F0AA"));
-            } else if (diff < -0.05) {
-                v.setTextViewText(R.id.marginWord, "DOWN");
-                v.setInt(R.id.marginBox, "setBackgroundResource", R.drawable.widget_margin_down);
-                v.setTextColor(R.id.marginWord, Color.parseColor("#FF8A8A"));
-                v.setTextColor(R.id.marginNum, Color.parseColor("#FF8A8A"));
-            } else {
-                v.setTextViewText(R.id.marginWord, "TIED");
-                v.setInt(R.id.marginBox, "setBackgroundResource", R.drawable.widget_margin_tied);
-                v.setTextColor(R.id.marginWord, Color.parseColor("#D3D9E1"));
-                v.setTextColor(R.id.marginNum, Color.parseColor("#D3D9E1"));
-            }
-            v.setTextViewText(R.id.marginNum, fmt(Math.abs(diff)));
-
-            int share = (mp + op) > 0 ? (int) Math.round(mp / (mp + op) * 100) : 50;
-            v.setProgressBar(R.id.bar, 100, share, false);
-
-            int meLeft = me.optInt("playing", 0) + me.optInt("yetToPlay", 0);
-            int oppLeft = opp.optInt("playing", 0) + opp.optInt("yetToPlay", 0);
-            double pd = mp - op;
-            String outlook;
-            if (meLeft == 0 && oppLeft == 0 && me.optJSONArray("starters") != null && me.optJSONArray("starters").length() > 0) {
-                outlook = diff > 0 ? "Final · You won by " + fmt(diff) : diff < 0 ? "Final · You lost by " + fmt(-diff) : "Final · Tie";
-            } else {
-                outlook = pd >= 0 ? "Projected to win by " + fmt(pd) : "Projected to lose by " + fmt(-pd);
-            }
-            v.setTextViewText(R.id.outlook, outlook);
-            v.setTextViewText(R.id.leftA, me.optInt("playing", 0) + " playing · " + me.optInt("yetToPlay", 0) + " to go");
-            v.setTextViewText(R.id.leftB, opp.optInt("playing", 0) + " playing · " + opp.optInt("yetToPlay", 0) + " to go");
+            Matchup m = Matchup.from(data);
+            v.setTextViewText(R.id.week, m.week);
+            v.setTextViewText(R.id.league, m.league);
+            v.setTextViewText(R.id.meName, m.meName);
+            v.setTextViewText(R.id.oppName, m.oppName);
+            v.setTextViewText(R.id.meScore, m.meScore);
+            v.setTextViewText(R.id.oppScore, m.oppScore);
+            v.setTextViewText(R.id.meProj, m.meProj);
+            v.setTextViewText(R.id.oppProj, m.oppProj);
+            v.setTextViewText(R.id.marginWord, m.marginWord);
+            v.setTextViewText(R.id.marginNum, m.marginNum);
+            v.setTextColor(R.id.marginWord, m.marginColor());
+            v.setTextColor(R.id.marginNum, m.marginColor());
+            v.setInt(R.id.marginBox, "setBackgroundResource", m.marginBackground());
+            v.setProgressBar(R.id.bar, 100, m.share, false);
+            v.setTextViewText(R.id.outlook, m.outlook);
+            v.setTextViewText(R.id.leftA, m.leftA);
+            v.setTextViewText(R.id.leftB, m.leftB);
         }
 
-        // Mode buttons: highlight the current one and wire each to a broadcast.
         String cur = prefs.mode();
         for (int i = 0; i < Prefs.MODES.length; i++) {
             boolean on = Prefs.MODES[i].equals(cur);
             v.setInt(BUTTON_IDS[i], "setBackgroundResource", on ? R.drawable.widget_btn_on : R.drawable.widget_btn);
             v.setTextColor(BUTTON_IDS[i], on ? Color.parseColor("#04111F") : Color.parseColor("#F3F5F8"));
             Intent intent = new Intent(app, ScoreWidget.class).setAction(ACTION_MODE).putExtra(EXTRA_MODE, Prefs.MODES[i]);
-            PendingIntent pi = PendingIntent.getBroadcast(app, 100 + i, intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            v.setOnClickPendingIntent(BUTTON_IDS[i], pi);
+            v.setOnClickPendingIntent(BUTTON_IDS[i], PendingIntent.getBroadcast(app, 100 + i, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
             if (on) v.setTextViewText(R.id.status, note != null ? note : "On the TV: " + MODE_LABELS[i]);
         }
 
-        // Tapping the score card refreshes it.
-        Intent refresh = new Intent(app, ScoreWidget.class).setAction(ACTION_REFRESH);
-        v.setOnClickPendingIntent(R.id.scoreArea, PendingIntent.getBroadcast(app, 200, refresh,
+        int bi = 0;
+        for (int i = 0; i < Prefs.BGS.length; i++) if (Prefs.BGS[i].equals(prefs.bg())) bi = i;
+        v.setTextViewText(R.id.bgBtn, "BG " + Prefs.BG_NAMES[bi]);
+        v.setOnClickPendingIntent(R.id.bgBtn, PendingIntent.getBroadcast(app, 150,
+                new Intent(app, ScoreWidget.class).setAction(ACTION_BG),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+
+        v.setOnClickPendingIntent(R.id.scoreArea, PendingIntent.getBroadcast(app, 200,
+                new Intent(app, ScoreWidget.class).setAction(ACTION_REFRESH),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
 
         AppWidgetManager mgr = AppWidgetManager.getInstance(app);
         int[] ids = mgr.getAppWidgetIds(new ComponentName(app, ScoreWidget.class));
         if (ids.length > 0) mgr.updateAppWidget(ids, v);
+    }
+
+    /** Used by the phone screen too. */
+    static String encode(String s) {
+        try { return URLEncoder.encode(s, "UTF-8"); } catch (Exception e) { return s; }
     }
 }

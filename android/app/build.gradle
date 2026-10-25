@@ -10,8 +10,8 @@ android {
         applicationId 'org.plasterfamily.fantasyoverlay'
         minSdk 26
         targetSdk 34
-        versionCode 3
-        versionName '1.2'
+        versionCode 4
+        versionName '1.3'
     }
 
     // One fixed key in the repo, so every GitHub build installs as an update

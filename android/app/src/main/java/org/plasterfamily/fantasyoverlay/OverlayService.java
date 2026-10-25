@@ -46,6 +46,7 @@ public class OverlayService extends Service {
     static final String ACTION_APPLY = "apply";
     static final String ACTION_BOOT = "boot";
     static final String ACTION_MODE = "mode";
+    static final String ACTION_APPLY_BG = "applyBg";
     static final String EXTRA_MODE = "m";
 
     static volatile OverlayService instance;
@@ -77,6 +78,35 @@ public class OverlayService extends Service {
         startInForeground();
         server = new ControlServer(this, Prefs.PORT);
         server.start();
+        if (isTv(this)) announceOnNetwork();
+    }
+
+    static final String NSD_TYPE = "_fantasyoverlay._tcp.";
+    private android.net.nsd.NsdManager.RegistrationListener nsdListener;
+
+    static boolean isTv(Context ctx) {
+        android.app.UiModeManager ui = (android.app.UiModeManager) ctx.getSystemService(Context.UI_MODE_SERVICE);
+        return ui != null && ui.getCurrentModeType() == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
+    }
+
+    /** Lets the phone find this TV by itself if its address changes. */
+    private void announceOnNetwork() {
+        try {
+            android.net.nsd.NsdServiceInfo info = new android.net.nsd.NsdServiceInfo();
+            info.setServiceName("FantasyOverlay-" + Build.MODEL.replaceAll("[^A-Za-z0-9]", ""));
+            info.setServiceType(NSD_TYPE);
+            info.setPort(Prefs.PORT);
+            nsdListener = new android.net.nsd.NsdManager.RegistrationListener() {
+                @Override public void onServiceRegistered(android.net.nsd.NsdServiceInfo s) { }
+                @Override public void onRegistrationFailed(android.net.nsd.NsdServiceInfo s, int code) { }
+                @Override public void onServiceUnregistered(android.net.nsd.NsdServiceInfo s) { }
+                @Override public void onUnregistrationFailed(android.net.nsd.NsdServiceInfo s, int code) { }
+            };
+            android.net.nsd.NsdManager nsd = (android.net.nsd.NsdManager) getSystemService(Context.NSD_SERVICE);
+            nsd.registerService(info, android.net.nsd.NsdManager.PROTOCOL_DNS_SD, nsdListener);
+        } catch (Exception ignored) {
+            nsdListener = null;
+        }
     }
 
     private void startInForeground() {
@@ -106,6 +136,7 @@ public class OverlayService extends Service {
             case ACTION_APPLY: apply(); break;
             case ACTION_BOOT: if (prefs.visible()) show(); break;
             case ACTION_MODE: setMode(intent.getStringExtra(EXTRA_MODE)); break;
+            case ACTION_APPLY_BG: applyMode(true); break;
         }
         return START_STICKY;
     }
@@ -213,7 +244,10 @@ public class OverlayService extends Service {
         if (web == null) return;
         final WebView view = web;
         // The mode is checked against a fixed list, so it is safe to put in the script.
-        String js = "(typeof window.setMode === 'function') ? (window.setMode('" + prefs.mode() + "'), 'ok') : 'old'";
+        // Mode and background are checked against fixed lists, so they are safe to put in the script.
+        String js = "(typeof window.setMode === 'function' && typeof window.setBg === 'function') ? "
+                + "(window.setMode('" + prefs.mode() + "'), window.setBg('" + prefs.bg() + "'), 'ok') : "
+                + "((window.setMode && window.setMode('" + prefs.mode() + "')), 'old')";
         view.evaluateJavascript(js, result -> {
             if (reloadIfOld && "\"old\"".equals(result) && view == web) view.reload();
         });
@@ -239,6 +273,12 @@ public class OverlayService extends Service {
                     case "/toggle": toggle(); break;
                     case "/reload": reload(); break;
                     case "/mode": setMode(q.get("m")); break;
+                    case "/bg": {
+                        String v = q.get("v");
+                        prefs.setBg(v == null || "next".equals(v) ? Prefs.nextBg(prefs.bg()) : v);
+                        applyMode(true);
+                        break;
+                    }
                     case "/set":
                         if (q.containsKey("url")) prefs.setUrl(q.get("url"));
                         if (q.containsKey("width")) {
@@ -263,6 +303,8 @@ public class OverlayService extends Service {
             JSONObject o = new JSONObject();
             o.put("visible", isShowing());
             o.put("mode", prefs.mode());
+            o.put("bg", prefs.bg());
+            o.put("app", "fantasyoverlay");
             o.put("url", prefs.url());
             o.put("width", prefs.width());
             o.put("side", prefs.leftSide() ? "left" : "right");
@@ -278,6 +320,9 @@ public class OverlayService extends Service {
     public void onDestroy() {
         hide();
         if (server != null) server.shutdown();
+        if (nsdListener != null) {
+            try { ((android.net.nsd.NsdManager) getSystemService(Context.NSD_SERVICE)).unregisterService(nsdListener); } catch (Exception ignored) { }
+        }
         instance = null;
         super.onDestroy();
     }

@@ -42,6 +42,22 @@ final class Prefs {
     }
     void setMode(String m) { if (validMode(m)) sp.edit().putString("mode", m).apply(); }
 
+    static final String[] BGS = {"0", "35", "75"};
+    static final String[] BG_NAMES = {"Solid", "35%", "75%"};
+
+    /** Background see-through: "0" (solid), "35" or "75" percent. */
+    String bg() {
+        String v = sp.getString("bg", "0");
+        for (String x : BGS) if (x.equals(v)) return v;
+        return "0";
+    }
+    void setBg(String v) { for (String x : BGS) if (x.equals(v)) { sp.edit().putString("bg", v).apply(); return; } }
+
+    static String nextBg(String cur) {
+        for (int i = 0; i < BGS.length; i++) if (BGS[i].equals(cur)) return BGS[(i + 1) % BGS.length];
+        return BGS[0];
+    }
+
     /** Phone only: the TV's address, e.g. 192.168.1.50 */
     String tvAddress() { return sp.getString("tv", ""); }
     void setTvAddress(String v) { sp.edit().putString("tv", v == null ? "" : v.trim()).apply(); }

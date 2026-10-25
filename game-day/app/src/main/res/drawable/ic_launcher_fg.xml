@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A big picture with a smaller video window in the corner. Fills the icon's safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#2E8B4A" android:pathData="M28,32h52a4,4 0 0 1 4,4v36a4,4 0 0 1 -4,4h-52a4,4 0 0 1 -4,-4v-36a4,4 0 0 1 4,-4z" />
+    <path android:fillColor="#3A9E58" android:pathData="M34,32h8v44h-8z M50,32h8v44h-8z M66,32h8v44h-8z" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.85" android:pathData="M24,47h60v2h-60z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M52,52h30a2,2 0 0 1 2,2v18a4,4 0 0 1 -4,4h-28a2,2 0 0 1 -2,-2v-20a2,2 0 0 1 2,-2z" />
+    <path android:fillColor="#2A5A8A" android:pathData="M54,54h28v20h-28z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M65,59.5l7,4.5l-7,4.5z" />
+</vector>

@@ -9,7 +9,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: rgba(9, 12, 18, 0.9);
+    --bg: rgba(9, 12, 18, 0.94);
+    --solo: rgba(12, 16, 24, 0.94);
     --card: rgba(255, 255, 255, 0.045);
     --edge: rgba(255, 255, 255, 0.08);
     --text: #F3F5F8;
@@ -121,7 +122,14 @@
   body[data-mode="auto"]:not(.expanded) .top, body[data-mode="auto"]:not(.expanded) .h2h,
   body[data-mode="auto"]:not(.expanded) .extras, body[data-mode="auto"]:not(.expanded) .foot { display: none; }
   body[data-mode="score"] .board,
-  body[data-mode="auto"]:not(.expanded) .board { background: rgba(12, 16, 24, 0.94); box-shadow: 0 calc(0.8 * var(--u)) calc(3 * var(--u)) rgba(0, 0, 0, 0.45); }
+  body[data-mode="auto"]:not(.expanded) .board { background: var(--solo); box-shadow: 0 calc(0.8 * var(--u)) calc(3 * var(--u)) rgba(0, 0, 0, 0.45); }
+
+  /* Background see-through: solid (0), 35 or 75 percent. Text stays solid and gets a shadow so it reads over the game. */
+  body[data-bg="35"] .panel, body[data-bg="75"] .panel { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.55); }
+  body[data-bg="35"] .row, body[data-bg="35"] .xrow, body[data-bg="35"] .badge { background: rgba(0, 0, 0, 0.22); }
+  body[data-bg="75"] .row, body[data-bg="75"] .xrow, body[data-bg="75"] .badge { background: rgba(0, 0, 0, 0.32); }
+  body[data-bg="75"] .board { background: rgba(0, 0, 0, 0.3); border-color: rgba(255, 255, 255, 0.12); }
+  body[data-bg="75"] .pts.trail, body[data-bg="75"] .meta, body[data-bg="75"] .proj, body[data-bg="75"] .left { color: #C9D1DC; }
   body[data-mode="score"] .alert,
   body[data-mode="auto"]:not(.expanded) .alert { background: #10291C; }
   body[data-mode="score"] .alert.opp,
@@ -182,6 +190,18 @@
 
   // Display mode. The TV app calls window.setMode('full' | 'score' | 'auto' | 'off').
   var MODES = { full: 1, score: 1, auto: 1, off: 1 };
+  // Background see-through level. The TV app calls window.setBg('0' | '35' | '75').
+  var BG = { '0': [0.94, 0.94], '35': [0.6, 0.62], '75': [0.24, 0.3] };
+  window.setBg = function (v) {
+    v = String(v);
+    if (!BG[v]) return;
+    var root = document.documentElement.style;
+    root.setProperty('--bg', 'rgba(9, 12, 18, ' + BG[v][0] + ')');
+    root.setProperty('--solo', 'rgba(12, 16, 24, ' + BG[v][1] + ')');
+    document.body.setAttribute('data-bg', v);
+  };
+  if (BG[params.get('bg')]) window.setBg(params.get('bg'));
+
   window.setMode = function (m) {
     if (!MODES[m]) return;
     document.body.setAttribute('data-mode', m);
