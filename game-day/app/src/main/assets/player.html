@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Game Day player</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #p, #p iframe, #p video { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+  #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 6vh;
+         text-align: center; color: #C9D1DC; font: 600 6vh/1.35 system-ui, sans-serif; background: #0B0F15; }
+  #msg.show { display: flex; }
+</style>
+</head>
+<body>
+<div id="p"></div>
+<div id="msg"></div>
+<script>
+(function () {
+  var muted = true;
+  var hls = null;
+
+  function msg(text) {
+    var m = document.getElementById('msg');
+    m.textContent = text || '';
+    m.className = text ? 'show' : '';
+  }
+
+  // Turn a link into something playable: YouTube, Twitch, direct video, or a web page.
+  function toEmbed(raw) {
+    var u;
+    try { u = new URL(String(raw).trim()); } catch (e) { return null; }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    var host = u.hostname.replace(/^(www\.|m\.)/, '');
+    var id = null;
+    if (host === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
+    else if (host === 'youtube.com' || host === 'music.youtube.com') {
+      if (u.pathname === '/watch') id = u.searchParams.get('v');
+      else { var m = u.pathname.match(/^\/(live|embed|shorts)\/([\w-]{6,})/); if (m) id = m[2]; }
+    }
+    if (id) return { type: 'youtube', src: 'https://www.youtube.com/embed/' + encodeURIComponent(id) +
+      '?autoplay=1&mute=1&playsinline=1&controls=0&enablejsapi=1&origin=' + encodeURIComponent(location.origin) };
+    if (host === 'twitch.tv') {
+      var ch = u.pathname.split('/')[1];
+      if (ch) return { type: 'twitch', src: 'https://player.twitch.tv/?channel=' + encodeURIComponent(ch) +
+        '&parent=' + location.hostname + '&muted=true&autoplay=true' };
+    }
+    if (/\.m3u8$/i.test(u.pathname)) return { type: 'hls', src: u.href };
+    if (/\.(mp4|webm|mov|m4v)$/i.test(u.pathname)) return { type: 'video', src: u.href };
+    return { type: 'page', src: u.href };
+  }
+
+  function loadHls() {
+    if (window.Hls) return Promise.resolve();
+    return new Promise(function (ok, fail) {
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js';
+      s.onload = ok; s.onerror = fail;
+      document.head.appendChild(s);
+    });
+  }
+
+  function applyMute() {
+    var v = document.querySelector('#p video');
+    if (v) { v.muted = muted; if (!muted) v.play().catch(function () {}); }
+    var f = document.querySelector('#p iframe');
+    if (f && /youtube\.com\/embed/.test(f.src)) {
+      try { f.contentWindow.postMessage(JSON.stringify({ event: 'command', func: muted ? 'mute' : 'unMute', args: [] }), '*'); } catch (e) {}
+    }
+  }
+
+  window.setMuted = function (m) { muted = !!m; applyMute(); };
+
+  window.play = function (raw) {
+    var p = document.getElementById('p');
+    if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
+    p.innerHTML = '';
+    msg('');
+    var emb = toEmbed(raw);
+    if (!emb) { msg("That doesn't look like a link."); return; }
+
+    if (emb.type === 'hls' || emb.type === 'video') {
+      var v = document.createElement('video');
+      v.autoplay = true; v.playsInline = true; v.muted = muted;
+      v.addEventListener('error', function () { msg("This video couldn't be played."); });
+      p.appendChild(v);
+      if (emb.type === 'video' || v.canPlayType('application/vnd.apple.mpegurl')) {
+        v.src = emb.src;
+      } else {
+        loadHls().then(function () {
+          if (window.Hls && window.Hls.isSupported()) {
+            hls = new window.Hls();
+            hls.on(window.Hls.Events.ERROR, function (_, d) { if (d && d.fatal) msg("This stream couldn't be played."); });
+            hls.loadSource(emb.src);
+            hls.attachMedia(v);
+          } else {
+            v.src = emb.src;
+          }
+        }).catch(function () { msg("Couldn't load the stream player."); });
+      }
+      return;
+    }
+
+    var f = document.createElement('iframe');
+    f.src = emb.src;
+    f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+    f.referrerPolicy = 'strict-origin-when-cross-origin';
+    if (emb.type === 'youtube') f.addEventListener('load', function () { setTimeout(applyMute, 800); });
+    p.appendChild(f);
+  };
+})();
+</script>
+</body>
+</html>

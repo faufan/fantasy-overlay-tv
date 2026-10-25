@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Game Day</string>
+    <string name="share_label">Game Day (TV)</string>
+    <string name="widget_desc">Show, hide, move and resize the video window on the TV</string>
+</resources>
