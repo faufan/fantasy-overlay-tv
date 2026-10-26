@@ -188,6 +188,8 @@ function buildSide(side, teamsById, sp, games) {
   return {
     name: teamName(teamsById[side.teamId]),
     abbrev: teamsById[side.teamId]?.abbrev || "",
+    // The team's ESPN logo (built-in or uploaded by the owner); empty when none is set.
+    logo: typeof teamsById[side.teamId]?.logo === "string" ? teamsById[side.teamId].logo : "",
     score: round(score),
     proj: round(proj),
     playing: starters.filter((p) => p.state === "in").length,

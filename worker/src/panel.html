@@ -136,6 +136,47 @@
   body[data-mode="auto"]:not(.expanded) .alert.opp { background: #2E2013; }
   body[data-mode="off"] .panel { visibility: hidden; }
 
+  /* Live: the score card plus only your players who are on the field right now. */
+  .live { display: none; flex-direction: column; gap: calc(0.7 * var(--u)); padding: calc(1.2 * var(--u)); border-radius: calc(1.4 * var(--u)); background: var(--solo); }
+  body[data-mode="live"] .panel { background: transparent; border-left: 0; }
+  body[data-mode="live"] .top, body[data-mode="live"] .h2h, body[data-mode="live"] .extras, body[data-mode="live"] .foot { display: none; }
+  body[data-mode="live"] .board { background: var(--solo); box-shadow: 0 calc(0.8 * var(--u)) calc(3 * var(--u)) rgba(0, 0, 0, 0.45); }
+  body[data-mode="live"] .live { display: flex; }
+  body[data-mode="live"] .alert { background: #10291C; }
+  body[data-mode="live"] .alert.opp { background: #2E2013; }
+  .live .lbl { display: flex; justify-content: space-between; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: calc(1.2 * var(--u)); letter-spacing: calc(0.15 * var(--u)); color: var(--muted); }
+  .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(0.6 * var(--u)); }
+  .tile { display: flex; align-items: center; justify-content: space-between; gap: calc(0.6 * var(--u)); padding: calc(0.8 * var(--u)) calc(1 * var(--u)); border-radius: calc(0.9 * var(--u)); background: var(--card); min-width: 0; transition: background 1s ease; }
+  .tile.hot { background: rgba(61, 220, 132, 0.18); box-shadow: inset 0 0 0 1px rgba(61, 220, 132, 0.6); }
+  .tile .who3 { min-width: 0; display: flex; flex-direction: column; gap: calc(0.1 * var(--u)); }
+  .tile .tn { font-size: calc(1.45 * var(--u)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .tm { font-size: calc(1.1 * var(--u)); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .tp { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: calc(2.3 * var(--u)); line-height: 1; flex: none; }
+  .live .them { font-size: calc(1.2 * var(--u)); color: #FFB57A; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .live .none { font-size: calc(1.35 * var(--u)); color: #D3D9E1; text-align: center; padding: calc(0.4 * var(--u)) 0; }
+
+  /* Mini: one small pill in the corner. */
+  .mini { display: none; position: fixed; top: calc(2.6 * var(--u)); right: calc(2.2 * var(--u)); align-items: center; gap: calc(0.8 * var(--u));
+          padding: calc(0.6 * var(--u)) calc(0.7 * var(--u)) calc(0.6 * var(--u)) calc(1.3 * var(--u)); border-radius: 999px; background: var(--solo);
+          box-shadow: 0 calc(0.6 * var(--u)) calc(2 * var(--u)) rgba(0, 0, 0, 0.4); }
+  .mini .ms { font-weight: 600; font-size: calc(1.5 * var(--u)); color: #D3D9E1; white-space: nowrap; }
+  .mini .mm { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: calc(1.8 * var(--u)); padding: calc(0.2 * var(--u)) calc(1 * var(--u)); border-radius: 999px; white-space: nowrap; background: rgba(255, 255, 255, 0.08); color: #D3D9E1; }
+  .mini .mm.up { background: rgba(61, 220, 132, 0.16); color: var(--good-text); }
+  .mini .mm.down { background: rgba(255, 107, 107, 0.16); color: var(--bad-text); }
+  body[data-mode="mini"] .panel { visibility: hidden; }
+  body[data-mode="mini"] .mini { display: flex; }
+
+  /* No background at all: text floats on the game with a strong shadow. */
+  body[data-bg="100"] .panel, body[data-bg="100"] .mini { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.75); }
+  body[data-bg="100"] .board, body[data-bg="100"] .row, body[data-bg="100"] .xrow, body[data-bg="100"] .badge,
+  body[data-bg="100"] .tile, body[data-bg="100"] .live, body[data-bg="100"] .slot { background: transparent; border-color: transparent; box-shadow: none; }
+  body[data-bg="100"] .tile.hot { box-shadow: inset 0 0 0 2px rgba(61, 220, 132, 0.85); }
+  body[data-bg="100"] .pts.trail, body[data-bg="100"] .meta, body[data-bg="100"] .proj, body[data-bg="100"] .left,
+  body[data-bg="100"] .tile .tm, body[data-bg="100"] .live .lbl, body[data-bg="100"] .league { color: #E5E9EE; }
+
+  /* Smart on/off: hidden while nobody in this matchup is playing. */
+  body.idle .panel, body.idle .mini { visibility: hidden; }
+
   .foot { display: flex; justify-content: space-between; gap: calc(1 * var(--u)); font-size: calc(1.15 * var(--u)); color: var(--dim); }
   .err { color: #FFB57A; }
   .empty-state { margin: auto 0; font-size: calc(1.7 * var(--u)); color: var(--muted); text-align: center; line-height: 1.5; }
@@ -170,10 +211,13 @@
 
   <div class="h2h" id="h2h"><div class="empty-state">Loading your matchup…</div></div>
 
+  <div class="live" id="live"></div>
+
   <div class="extras" id="extras"></div>
 
   <div class="foot"><div id="updated">Connecting…</div><div id="status"></div></div>
 </div>
+<div class="mini" id="mini"><span class="ms" id="miniScore">–</span><span class="mm" id="miniMargin">TIED</span></div>
 
 <script>
 (function () {
@@ -189,9 +233,16 @@
   var prev = null, hotUntil = {}, alertTimer = null, lastOk = 0, expandTimer = null;
 
   // Display mode. The TV app calls window.setMode('full' | 'score' | 'auto' | 'off').
-  var MODES = { full: 1, score: 1, auto: 1, off: 1 };
+  var MODES = { full: 1, live: 1, score: 1, mini: 1, auto: 1, off: 1 };
+  var smart = params.get('smart') === '1', anyoneLive = true;
+
+  // Smart on/off. The TV app calls window.setSmart(true | false).
+  window.setSmart = function (on) {
+    smart = !!on;
+    document.body.classList.toggle('idle', smart && !anyoneLive);
+  };
   // Background see-through level. The TV app calls window.setBg('0' | '35' | '75').
-  var BG = { '0': [0.94, 0.94], '35': [0.6, 0.62], '75': [0.24, 0.3] };
+  var BG = { '0': [0.94, 0.94], '35': [0.6, 0.62], '75': [0.24, 0.3], '100': [0, 0] };
   window.setBg = function (v) {
     v = String(v);
     if (!BG[v]) return;
@@ -300,6 +351,32 @@
     return out.join('');
   }
 
+  // Live mode: your players in a game right now, two per row, plus a one-line opponent summary.
+  function liveHtml(me, opp, now) {
+    var mine = (me.starters || []).filter(function (p) { return p.state === 'in'; });
+    var theirs = (opp.starters || []).filter(function (p) { return p.state === 'in'; })
+      .sort(function (a, b) { return (b.pts || 0) - (a.pts || 0); });
+    var out = '<div class="lbl"><span>PLAYING NOW · YOU</span><span>' + mine.length + '</span></div>';
+    if (mine.length) {
+      out += '<div class="tiles">' + mine.map(function (p) {
+        var hot = hotUntil['a:' + p.name] > now;
+        return '<div class="tile' + (hot ? ' hot' : '') + '"><div class="who3"><div class="tn">' + esc(shortName(p.name)) + '</div>' +
+          '<div class="tm">' + esc([p.team, p.detail].filter(Boolean).join(' · ')) + '</div></div>' +
+          '<div class="tp">' + fmt(p.pts) + '</div></div>';
+      }).join('') + '</div>';
+    } else {
+      var soonest = null;
+      (me.starters || []).concat(opp.starters || []).forEach(function (p) {
+        if (p.state === 'pre' && p.kick && (!soonest || p.kick < soonest.kick)) soonest = p;
+      });
+      out += '<div class="none">No one playing' + (soonest ? ' · Next: ' + esc(soonest.detail) : '') + '</div>';
+    }
+    out += '<div class="them">Them: ' + (theirs.length ? theirs.length + ' playing · ' +
+      theirs.slice(0, 2).map(function (p) { return esc(shortName(p.name).replace(/^.\. /, '')) + ' ' + fmt(p.pts); }).join(' · ')
+      : 'no one playing') + '</div>';
+    return out;
+  }
+
   function render(d) {
     var me = d.me || { starters: [] }, opp = d.opp || { starters: [] };
     var now = Date.now();
@@ -353,6 +430,17 @@
     if (best) { showAlert(best); if (best.delta >= 6) expandForPlay(); }
 
     $('extras').innerHTML = extras(me, opp);
+    $('live').innerHTML = liveHtml(me, opp, now);
+
+    // Mini pill
+    $('miniScore').textContent = fmt(me.score) + '–' + fmt(opp.score);
+    var mm = $('miniMargin');
+    mm.className = 'mm' + (diff > 0.05 ? ' up' : diff < -0.05 ? ' down' : '');
+    mm.textContent = (diff > 0.05 ? 'UP ' : diff < -0.05 ? 'DOWN ' : 'TIED ') + (Math.abs(diff) > 0.05 ? fmt(Math.abs(diff)) : '');
+
+    // Smart on/off follows whether anyone in this matchup is playing.
+    anyoneLive = (me.playing || 0) + (opp.playing || 0) > 0;
+    document.body.classList.toggle('idle', smart && !anyoneLive);
 
     var rows = pairRows(me.starters, opp.starters).map(function (r) {
       return '<div class="row">' + cell(r.a, 'a', r.b, now) + '<div class="slot">' + esc(r.slot) + '</div>' + cell(r.b, 'b', r.a, now) + '</div>';

@@ -67,11 +67,33 @@ final class TvClient {
         }
     }
 
+    /** Is the phone on Wi-Fi (or Ethernet)? TV controls only work on the home network. */
+    static boolean onLocalNetwork(Context ctx) {
+        try {
+            android.net.ConnectivityManager cm = ctx.getSystemService(android.net.ConnectivityManager.class);
+            android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(cm.getActiveNetwork());
+            return nc != null && (nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                    || nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET));
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
     /** Looks for the TV on the Wi-Fi. Returns "ip:port" or null. */
     static String discover(Context ctx, long timeoutMs) {
+        java.util.List<String[]> all = discoverAll(ctx, timeoutMs, true);
+        return all.isEmpty() ? null : all.get(0)[1];
+    }
+
+    /**
+     * Finds every device running Fantasy Overlay on the Wi-Fi.
+     * Returns a list of {name, "ip:port"}. With firstOnly, stops at the first one found.
+     */
+    static java.util.List<String[]> discoverAll(Context ctx, long timeoutMs, boolean firstOnly) {
+        java.util.List<String[]> results = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
         Context app = ctx.getApplicationContext();
         NsdManager nsd = (NsdManager) app.getSystemService(Context.NSD_SERVICE);
-        if (nsd == null) return null;
+        if (nsd == null) return results;
 
         WifiManager wifi = (WifiManager) app.getSystemService(Context.WIFI_SERVICE);
         WifiManager.MulticastLock lock = null;
@@ -83,7 +105,6 @@ final class TvClient {
             }
         } catch (Exception ignored) { lock = null; }
 
-        AtomicReference<String> found = new AtomicReference<>(null);
         CountDownLatch done = new CountDownLatch(1);
 
         NsdManager.DiscoveryListener listener = new NsdManager.DiscoveryListener() {
@@ -96,7 +117,7 @@ final class TvClient {
             @Override
             @SuppressWarnings("deprecation")
             public void onServiceFound(NsdServiceInfo info) {
-                if (found.get() != null) return;
+                if (firstOnly && !results.isEmpty()) return;
                 try {
                     nsd.resolveService(info, new NsdManager.ResolveListener() {
                         @Override public void onResolveFailed(NsdServiceInfo s, int code) { }
@@ -104,12 +125,17 @@ final class TvClient {
                         @Override
                         public void onServiceResolved(NsdServiceInfo s) {
                             InetAddress host = s.getHost();
-                            if (host == null || found.get() != null) return;
+                            if (host == null) return;
                             String candidate = host.getHostAddress() + ":" + s.getPort();
-                            if (get(candidate, "/status") != null) {
-                                found.set(candidate);
-                                done.countDown();
+                            String body = get(candidate, "/status");
+                            if (body == null) return;
+                            String name = s.getServiceName().replaceFirst("^FantasyOverlay-", "");
+                            try { name = new org.json.JSONObject(body).optString("name", name); } catch (Exception ignored) { }
+                            synchronized (results) {
+                                for (String[] r : results) if (r[1].equals(candidate)) return;
+                                results.add(new String[]{name, candidate});
                             }
+                            if (firstOnly) done.countDown();
                         }
                     });
                 } catch (Exception ignored) { }
@@ -124,6 +150,6 @@ final class TvClient {
             try { nsd.stopServiceDiscovery(listener); } catch (Exception ignored) { }
             try { if (lock != null) lock.release(); } catch (Exception ignored) { }
         }
-        return found.get();
+        synchronized (results) { return new java.util.ArrayList<>(results); }
     }
 }

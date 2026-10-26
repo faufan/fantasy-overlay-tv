@@ -21,24 +21,30 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 
 import org.json.JSONObject;
 
 import java.net.Inet4Address;
+import java.util.List;
 
 /**
  * On the TV: the overlay's settings, used with the remote.
- * On a phone: a remote for the TV — score card, panel mode, background, and settings.
+ * On a phone: a remote for every device running the panel (TVs and this phone).
  */
 public class MainActivity extends Activity {
     private static final int BG = Color.rgb(10, 14, 20);
     private static final int MUTED = Color.rgb(154, 164, 178);
     private static final int ACCENT = Color.rgb(90, 169, 255);
+    private static final int[] MODE_IDS = {R.id.modeFull, R.id.modeLive, R.id.modeScore, R.id.modeMini, R.id.modeAuto, R.id.modeOff};
+    private static final String[] MODE_LABELS = {"Full panel", "Live players", "Score only", "Mini pill", "Score, opens on big plays", "Hidden"};
 
     private boolean tv;
     private Prefs prefs;
@@ -46,19 +52,21 @@ public class MainActivity extends Activity {
 
     // TV screen
     private TextView status, permissionHelp;
-    private Button toggleBtn, widthBtn, sideBtn, demoBtn, permBtn;
+    private Button toggleBtn, widthBtn, sideBtn, demoBtn, permBtn, smartBtn;
     private Button[] modeBtns, bgBtns;
     private EditText urlField;
 
     // Phone screen
     private View card;
-    private TextView phoneStatus;
-    private EditText tvField, phoneUrlField;
-    private LinearLayout widthRow, sideRow, bgRow;
+    private TextView phoneStatus, targetLabel;
+    private LinearLayout deviceList, widthRow, sideRow, bgRow;
+    private Switch smartSwitch;
+    private EditText addField, phoneUrlField;
     private Button demoToggle;
-    private String tvUrl = "";
-    private int tvWidth = 25;
-    private boolean tvLeft = false;
+    private List<Devices.Device> devices;
+    private String devUrl = "";
+    private int devWidth = 25;
+    private boolean devLeft = false, quietSmart = false;
     private final Runnable tick = new Runnable() {
         @Override public void run() { loadScore(); main.postDelayed(this, 60_000); }
     };
@@ -82,7 +90,7 @@ public class MainActivity extends Activity {
         if (tv) {
             refreshTv();
         } else {
-            tvCommand("/status");
+            scanDevices();
             main.post(tick);
         }
     }
@@ -130,11 +138,10 @@ public class MainActivity extends Activity {
 
         col.addView(label("Panel mode"));
         LinearLayout modeRow = row();
-        String[] modeNames = {"Full", "Score", "Auto", "Off"};
         modeBtns = new Button[Prefs.MODES.length];
         for (int i = 0; i < Prefs.MODES.length; i++) {
             final String m = Prefs.MODES[i];
-            modeBtns[i] = button(modeNames[i], v -> { prefs.setMode(m); OverlayService.sendMode(this, m); refreshTvSoon(); });
+            modeBtns[i] = button(Prefs.MODE_NAMES[i], v -> { prefs.setMode(m); OverlayService.sendMode(this, m); refreshTvSoon(); });
             modeRow.addView(modeBtns[i]);
         }
         col.addView(modeRow);
@@ -148,6 +155,10 @@ public class MainActivity extends Activity {
             bgRowTv.addView(bgBtns[i]);
         }
         col.addView(bgRowTv);
+
+        col.addView(label("Smart on/off: show at kickoff, hide after the last game"));
+        smartBtn = button("", v -> { prefs.setSmart(!prefs.smart()); OverlayService.send(this, OverlayService.ACTION_APPLY_BG); refreshTvSoon(); });
+        col.addView(smartBtn);
 
         TextView tip = text("Install this app on your phone too: it finds this TV by itself and works as a remote and widget.",
                 15, Color.rgb(167, 176, 189));
@@ -167,13 +178,14 @@ public class MainActivity extends Activity {
         String ip = localIp();
         status.setText((perm ? "Permission: granted" : "Permission: NOT granted yet")
                 + "\nOverlay: " + (showing ? "showing" : "hidden") + " · mode: " + prefs.mode()
-                + "\nThis TV: " + (ip == null ? "(no network)" : ip + ":" + Prefs.PORT));
+                + "\nThis TV: " + OverlayService.deviceName(this) + " · " + (ip == null ? "(no network)" : ip + ":" + Prefs.PORT));
         permBtn.setVisibility(perm ? View.GONE : View.VISIBLE);
         permissionHelp.setVisibility(perm ? View.GONE : View.VISIBLE);
         toggleBtn.setText(showing ? "Hide overlay" : "Show overlay");
         widthBtn.setText("Width " + prefs.width() + "%");
         sideBtn.setText(prefs.leftSide() ? "Side: left" : "Side: right");
         demoBtn.setText(prefs.url().contains("demo=1") ? "Demo data: on" : "Demo data: off");
+        smartBtn.setText(prefs.smart() ? "Smart on/off: ON" : "Smart on/off: off");
         if (!urlField.hasFocus()) urlField.setText(prefs.url());
         for (int i = 0; i < modeBtns.length; i++) modeBtns[i].setAlpha(Prefs.MODES[i].equals(prefs.mode()) ? 1f : 0.5f);
         for (int i = 0; i < bgBtns.length; i++) bgBtns[i].setAlpha(Prefs.BGS[i].equals(prefs.bg()) ? 1f : 0.5f);
@@ -216,14 +228,15 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ Phone
 
     private void buildPhoneScreen() {
+        devices = Devices.load(this);
         LinearLayout col = column(dp(20), dp(20));
 
         col.addView(text("Fantasy Overlay", 24, Color.WHITE));
-        phoneStatus = text("Looking for the TV…", 14, MUTED);
-        phoneStatus.setPadding(0, dp(4), 0, dp(16));
+        phoneStatus = text("Looking for your devices…", 14, MUTED);
+        phoneStatus.setPadding(0, dp(4), 0, dp(8));
         col.addView(phoneStatus);
 
-        // The same card as the widget: score, then Full / Score / Auto / Off.
+        // The same card as the widget: score, then the mode buttons.
         card = LayoutInflater.from(this).inflate(R.layout.widget_score, col, false);
         View scoreArea = card.findViewById(R.id.scoreArea);
         LinearLayout.LayoutParams sp = (LinearLayout.LayoutParams) scoreArea.getLayoutParams();
@@ -232,49 +245,77 @@ public class MainActivity extends Activity {
         scoreArea.setLayoutParams(sp);
         card.findViewById(R.id.bgBtn).setVisibility(View.GONE);
         scoreArea.setOnClickListener(v -> loadScore());
-        int[] ids = {R.id.modeFull, R.id.modeScore, R.id.modeAuto, R.id.modeOff};
-        for (int i = 0; i < ids.length; i++) {
+        for (int i = 0; i < MODE_IDS.length; i++) {
             final String m = Prefs.MODES[i];
-            card.findViewById(ids[i]).setOnClickListener(v -> { prefs.setMode(m); drawPhone(); tvCommand("/mode?m=" + m); });
+            card.findViewById(MODE_IDS[i]).setOnClickListener(v -> { prefs.setMode(m); drawPhone(); send("/mode?m=" + m); });
         }
         col.addView(card, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // Devices: checkbox = what the controls change, switch = panel on/off on that device.
+        LinearLayout devHeader = row();
+        devHeader.addView(section("Devices"), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button scan = chip("Scan", v -> scanDevices());
+        LinearLayout.LayoutParams scanLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
+        scanLp.setMargins(0, dp(14), 0, 0);
+        devHeader.addView(scan, scanLp);
+        col.addView(devHeader);
+        deviceList = new LinearLayout(this);
+        deviceList.setOrientation(LinearLayout.VERTICAL);
+        col.addView(deviceList);
+        targetLabel = hint("");
+        col.addView(targetLabel);
 
         col.addView(section("Background"));
         bgRow = row();
         for (int i = 0; i < Prefs.BGS.length; i++) {
             final String b = Prefs.BGS[i];
-            bgRow.addView(chip(Prefs.BG_NAMES[i], v -> { prefs.setBg(b); drawPhone(); tvCommand("/bg?v=" + b); }), weighted());
+            bgRow.addView(chip(Prefs.BG_NAMES[i], v -> { prefs.setBg(b); drawPhone(); send("/bg?v=" + b); }), weighted());
         }
         col.addView(bgRow);
-        col.addView(hint("How much of the game shows through the panel. The text always stays solid."));
+
+        LinearLayout smartRow = row();
+        smartRow.setPadding(dp(3), dp(18), 0, 0);
+        LinearLayout smartText = new LinearLayout(this);
+        smartText.setOrientation(LinearLayout.VERTICAL);
+        smartText.addView(text("Smart on/off", 15, Color.WHITE));
+        smartText.addView(text("Shows at the first kickoff, hides after the last game", 12, MUTED));
+        smartRow.addView(smartText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        smartSwitch = new Switch(this);
+        smartSwitch.setOnCheckedChangeListener((CompoundButton b, boolean on) -> {
+            if (quietSmart) return;
+            prefs.setSmart(on);
+            send("/smart?on=" + (on ? "1" : "0"));
+        });
+        smartRow.addView(smartSwitch);
+        col.addView(smartRow);
 
         col.addView(section("Panel size"));
         widthRow = row();
         for (int w : new int[]{20, 25, 30, 33}) {
             final int width = w;
-            widthRow.addView(chip(w + "%", v -> { tvWidth = width; drawPhone(); tvCommand("/set?width=" + width); }), weighted());
+            widthRow.addView(chip(w + "%", v -> { devWidth = width; drawPhone(); send("/set?width=" + width); }), weighted());
         }
         col.addView(widthRow);
 
         col.addView(section("Side"));
         sideRow = row();
-        sideRow.addView(chip("Left", v -> { tvLeft = true; drawPhone(); tvCommand("/set?side=left"); }), weighted());
-        sideRow.addView(chip("Right", v -> { tvLeft = false; drawPhone(); tvCommand("/set?side=right"); }), weighted());
+        sideRow.addView(chip("Left", v -> { devLeft = true; drawPhone(); send("/set?side=left"); }), weighted());
+        sideRow.addView(chip("Right", v -> { devLeft = false; drawPhone(); send("/set?side=right"); }), weighted());
         col.addView(sideRow);
 
-        col.addView(section("TV"));
-        LinearLayout tvRow = row();
-        tvField = field("Found automatically");
-        tvRow.addView(tvField, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        tvRow.addView(chip("Find TV", v -> { prefs.setTvAddress(""); tvCommand("/status"); }), wrap());
-        col.addView(tvRow);
-        LinearLayout tvButtons = row();
-        tvButtons.setPadding(0, dp(8), 0, 0);
-        tvButtons.addView(chip("Save address", v -> { prefs.setTvAddress(tvField.getText().toString()); tvCommand("/status"); }), weighted());
-        tvButtons.addView(chip("Reload panel", v -> tvCommand("/reload")), weighted());
-        demoToggle = chip("Demo data", v -> tvCommand("/set?url=" + ScoreWidget.encode(withDemo(tvUrl, !tvUrl.contains("demo=1")))));
-        tvButtons.addView(demoToggle, weighted());
-        col.addView(tvButtons);
+        col.addView(section("More"));
+        LinearLayout more = row();
+        more.addView(chip("Reload panel", v -> send("/reload")), weighted());
+        demoToggle = chip("Demo data", v -> send("/set?url=" + ScoreWidget.encode(withDemo(devUrl, !devUrl.contains("demo=1")))));
+        more.addView(demoToggle, weighted());
+        col.addView(more);
+
+        col.addView(section("Add a TV by address"));
+        LinearLayout addRow = row();
+        addField = field("Only if Scan doesn't find it, e.g. 192.168.68.68");
+        addRow.addView(addField, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        addRow.addView(chip("Add", v -> addByAddress()), wrap());
+        col.addView(addRow);
 
         col.addView(section("Panel page"));
         LinearLayout urlRow = row();
@@ -283,50 +324,166 @@ public class MainActivity extends Activity {
         urlRow.addView(chip("Save", v -> {
             String u = phoneUrlField.getText().toString().trim();
             prefs.setUrl(u);
-            tvCommand("/set?url=" + ScoreWidget.encode(u));
+            send("/set?url=" + ScoreWidget.encode(u));
             loadScore();
         }), wrap());
         col.addView(urlRow);
-        col.addView(hint("Add the Fantasy Overlay widget to your home screen for one-tap controls."));
+        col.addView(hint("The widget's buttons change the checked devices. Resize the widget for the score bar (1 row), the card (2 rows), or who's playing (4 rows)."));
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(BG);
         scroll.addView(col);
         setContentView(scroll);
+        drawDevices();
         drawPhone();
     }
 
-    /** Send a command to the TV, then update the screen with what the TV reports. */
-    private void tvCommand(String path) {
-        phoneStatus.setText("Talking to the TV…");
+    /** Look for devices on the Wi-Fi and get each one's status. */
+    private void scanDevices() {
+        phoneStatus.setText(TvClient.onLocalNetwork(this) ? "Looking for your devices…" : "Away from home · TV controls work on your Wi-Fi");
         new Thread(() -> {
-            TvClient.Result r = TvClient.send(getApplicationContext(), path);
-            String body = r.body;
-            ScoreWidget.syncFromTv(prefs, body);
+            List<Devices.Device> list = Devices.refresh(getApplicationContext());
             runOnUiThread(() -> {
-                if (body != null) {
-                    try {
-                        JSONObject o = new JSONObject(body);
-                        tvUrl = o.optString("url", tvUrl);
-                        tvWidth = o.optInt("width", tvWidth);
-                        tvLeft = "left".equals(o.optString("side", tvLeft ? "left" : "right"));
-                        if (!tvUrl.isEmpty() && !phoneUrlField.hasFocus()) phoneUrlField.setText(tvUrl);
-                        boolean visible = o.optBoolean("visible", false);
-                        phoneStatus.setText("TV " + prefs.tvAddress() + " · overlay " + (visible ? "showing" : "hidden"));
-                    } catch (Exception ignored) { }
-                } else {
-                    phoneStatus.setText(r.error);
-                }
-                if (!tvField.hasFocus()) tvField.setText(prefs.tvAddress());
+                devices = list;
+                for (Devices.Device d : list) if (d.sel && d.status != null) { absorb(d.status); break; }
+                int found = 0;
+                for (Devices.Device d : list) if (!d.isLocal() && d.status != null) found++;
+                phoneStatus.setText(found == 0 ? (TvClient.onLocalNetwork(this) ? "No TVs found yet · open Fantasy Overlay on the TV once" : "Away from home")
+                        : found + (found == 1 ? " TV found" : " TVs found"));
+                drawDevices();
+                drawPhone();
+            });
+        }).start();
+    }
+
+    private void addByAddress() {
+        String addr = addField.getText().toString().trim();
+        if (addr.isEmpty()) return;
+        new Thread(() -> {
+            String body = TvClient.get(addr, "/status");
+            runOnUiThread(() -> {
+                if (body == null) { phoneStatus.setText("Nothing answered at " + addr); return; }
+                String name = addr;
+                try { name = new JSONObject(body).optString("name", addr); } catch (Exception ignored) { }
+                Devices.Device d = new Devices.Device(name, addr.contains(":") ? addr : addr + ":" + Prefs.PORT, true);
+                d.status = body;
+                devices.add(0, d);
+                Devices.save(this, devices);
+                addField.setText("");
+                drawDevices();
+            });
+        }).start();
+    }
+
+    private void drawDevices() {
+        deviceList.removeAllViews();
+        StringBuilder targets = new StringBuilder();
+        for (Devices.Device d : devices) {
+            if (d.sel) targets.append(targets.length() == 0 ? "" : ", ").append(d.name);
+            deviceList.addView(deviceRow(d));
+        }
+        targetLabel.setText(targets.length() == 0 ? "Check a device to control it." : "Controls below change: " + targets);
+    }
+
+    private View deviceRow(Devices.Device d) {
+        LinearLayout r = row();
+        r.setPadding(dp(10), dp(8), dp(10), dp(8));
+        r.setBackground(pill(Color.rgb(21, 27, 37), Color.argb(20, 255, 255, 255)));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, 0, dp(8));
+        r.setLayoutParams(lp);
+
+        CheckBox check = new CheckBox(this);
+        check.setChecked(d.sel);
+        check.setOnCheckedChangeListener((CompoundButton b, boolean on) -> {
+            d.sel = on;
+            Devices.save(this, devices);
+            drawDevices();
+            ScoreWidget.refreshAll(this);
+        });
+        r.addView(check);
+
+        boolean visible = false;
+        String line;
+        if (d.status == null) {
+            line = d.isLocal() ? "Off" : "Not answering";
+        } else {
+            try {
+                JSONObject o = new JSONObject(d.status);
+                visible = o.optBoolean("visible", false);
+                int mi = Math.max(0, indexOf(Prefs.MODES, o.optString("mode", "full")));
+                int bi = Math.max(0, indexOf(Prefs.BGS, o.optString("bg", "0")));
+                line = visible ? "Showing · " + Prefs.MODE_NAMES[mi] + " · " + (bi == 3 ? "No background" : Prefs.BG_NAMES[bi] + " background")
+                        + (o.optBoolean("smart") ? " · Smart" : "") : "Hidden";
+            } catch (Exception e) {
+                line = "";
+            }
+        }
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(text(d.name, 15, Color.WHITE));
+        texts.addView(text(line, 12, MUTED));
+        r.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        Switch on = new Switch(this);
+        on.setChecked(visible);
+        on.setOnCheckedChangeListener((CompoundButton b, boolean show) -> {
+            if (d.isLocal() && show && !Settings.canDrawOverlays(this)) {
+                b.setChecked(false);
+                phoneStatus.setText("Allow \"Display over other apps\" for this phone first");
+                try { startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()))); } catch (Exception ignored) { }
+                return;
+            }
+            new Thread(() -> {
+                d.status = Devices.call(getApplicationContext(), d, show ? "/show" : "/hide");
+                runOnUiThread(this::drawDevices);
+            }).start();
+        });
+        r.addView(on);
+        return r;
+    }
+
+    private static int indexOf(String[] list, String v) {
+        for (int i = 0; i < list.length; i++) if (list[i].equals(v)) return i;
+        return -1;
+    }
+
+    /** Send a command to the checked devices, then show what they report. */
+    private void send(String path) {
+        phoneStatus.setText("Sending…");
+        new Thread(() -> {
+            Devices.Result r = Devices.sendSelected(getApplicationContext(), path);
+            ScoreWidget.syncFromTv(prefs, r.body);
+            List<Devices.Device> list = Devices.load(getApplicationContext());
+            for (Devices.Device d : list) if (d.sel) d.status = Devices.call(getApplicationContext(), d, "/status");
+            runOnUiThread(() -> {
+                devices = list;
+                if (r.body != null) absorb(r.body);
+                phoneStatus.setText(r.note != null ? r.note : "Done");
+                drawDevices();
                 drawPhone();
                 ScoreWidget.refreshAll(this);
             });
         }).start();
     }
 
+    /** Take the settings a device reported so the screen shows them. */
+    private void absorb(String body) {
+        try {
+            JSONObject o = new JSONObject(body);
+            devUrl = o.optString("url", devUrl);
+            devWidth = o.optInt("width", devWidth);
+            devLeft = "left".equals(o.optString("side", devLeft ? "left" : "right"));
+            if (o.has("mode")) prefs.setMode(o.optString("mode"));
+            if (o.has("bg")) prefs.setBg(o.optString("bg"));
+            if (o.has("smart")) prefs.setSmart(o.optBoolean("smart"));
+            if (!devUrl.isEmpty() && !phoneUrlField.hasFocus()) phoneUrlField.setText(devUrl);
+        } catch (Exception ignored) { }
+    }
+
     private void loadScore() {
         new Thread(() -> {
-            JSONObject data = null;
+            JSONObject data;
             try {
                 data = ScoreWidget.fetchMatchup(prefs);
                 prefs.setLastMatchup(data.toString());
@@ -362,21 +519,22 @@ public class MainActivity extends Activity {
 
     /** Highlight the current choices. */
     private void drawPhone() {
-        int[] ids = {R.id.modeFull, R.id.modeScore, R.id.modeAuto, R.id.modeOff};
-        String[] labels = {"Full panel", "Score only", "Score, opens on big plays", "Hidden"};
-        for (int i = 0; i < ids.length; i++) {
+        for (int i = 0; i < MODE_IDS.length; i++) {
             boolean on = Prefs.MODES[i].equals(prefs.mode());
-            TextView b = card.findViewById(ids[i]);
+            TextView b = card.findViewById(MODE_IDS[i]);
             b.setBackgroundResource(on ? R.drawable.widget_btn_on : R.drawable.widget_btn);
             b.setTextColor(on ? Color.rgb(4, 17, 31) : Color.rgb(243, 245, 248));
-            if (on) setText(R.id.status, "On the TV: " + labels[i]);
+            if (on) setText(R.id.status, "Mode: " + MODE_LABELS[i]);
         }
         for (int i = 0; i < bgRow.getChildCount(); i++) select(bgRow.getChildAt(i), Prefs.BGS[i].equals(prefs.bg()));
         int[] widths = {20, 25, 30, 33};
-        for (int i = 0; i < widthRow.getChildCount(); i++) select(widthRow.getChildAt(i), widths[i] == tvWidth);
-        select(sideRow.getChildAt(0), tvLeft);
-        select(sideRow.getChildAt(1), !tvLeft);
-        demoToggle.setText(tvUrl.contains("demo=1") ? "Demo: on" : "Demo: off");
+        for (int i = 0; i < widthRow.getChildCount(); i++) select(widthRow.getChildAt(i), widths[i] == devWidth);
+        select(sideRow.getChildAt(0), devLeft);
+        select(sideRow.getChildAt(1), !devLeft);
+        demoToggle.setText(devUrl.contains("demo=1") ? "Demo: on" : "Demo: off");
+        quietSmart = true;
+        smartSwitch.setChecked(prefs.smart());
+        quietSmart = false;
     }
 
     private void select(View v, boolean on) {

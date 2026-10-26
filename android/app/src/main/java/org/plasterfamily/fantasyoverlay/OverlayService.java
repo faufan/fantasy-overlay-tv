@@ -84,6 +84,15 @@ public class OverlayService extends Service {
     static final String NSD_TYPE = "_fantasyoverlay._tcp.";
     private android.net.nsd.NsdManager.RegistrationListener nsdListener;
 
+    /** The name the person gave this device in its settings ("Family Room TV"), or its model. */
+    static String deviceName(Context ctx) {
+        try {
+            String n = Settings.Global.getString(ctx.getContentResolver(), "device_name");
+            if (n != null && !n.trim().isEmpty()) return n.trim();
+        } catch (Exception ignored) { }
+        return Build.MODEL;
+    }
+
     static boolean isTv(Context ctx) {
         android.app.UiModeManager ui = (android.app.UiModeManager) ctx.getSystemService(Context.UI_MODE_SERVICE);
         return ui != null && ui.getCurrentModeType() == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION;
@@ -93,7 +102,7 @@ public class OverlayService extends Service {
     private void announceOnNetwork() {
         try {
             android.net.nsd.NsdServiceInfo info = new android.net.nsd.NsdServiceInfo();
-            info.setServiceName("FantasyOverlay-" + Build.MODEL.replaceAll("[^A-Za-z0-9]", ""));
+            info.setServiceName("FantasyOverlay-" + deviceName(this).replaceAll("[^A-Za-z0-9 ]", "").trim());
             info.setServiceType(NSD_TYPE);
             info.setPort(Prefs.PORT);
             nsdListener = new android.net.nsd.NsdManager.RegistrationListener() {
@@ -243,10 +252,10 @@ public class OverlayService extends Service {
     void applyMode(boolean reloadIfOld) {
         if (web == null) return;
         final WebView view = web;
-        // The mode is checked against a fixed list, so it is safe to put in the script.
-        // Mode and background are checked against fixed lists, so they are safe to put in the script.
-        String js = "(typeof window.setMode === 'function' && typeof window.setBg === 'function') ? "
-                + "(window.setMode('" + prefs.mode() + "'), window.setBg('" + prefs.bg() + "'), 'ok') : "
+        // Mode and background come from fixed lists and smart is a boolean, so they are safe in the script.
+        // An older page (from before a Worker update) lacks setSmart, so it gets reloaded once.
+        String js = "(typeof window.setMode === 'function' && typeof window.setBg === 'function' && typeof window.setSmart === 'function') ? "
+                + "(window.setMode('" + prefs.mode() + "'), window.setBg('" + prefs.bg() + "'), window.setSmart(" + prefs.smart() + "), 'ok') : "
                 + "((window.setMode && window.setMode('" + prefs.mode() + "')), 'old')";
         view.evaluateJavascript(js, result -> {
             if (reloadIfOld && "\"old\"".equals(result) && view == web) view.reload();
@@ -273,6 +282,10 @@ public class OverlayService extends Service {
                     case "/toggle": toggle(); break;
                     case "/reload": reload(); break;
                     case "/mode": setMode(q.get("m")); break;
+                    case "/smart":
+                        prefs.setSmart("1".equals(q.get("on")) || "true".equals(q.get("on")));
+                        applyMode(true);
+                        break;
                     case "/bg": {
                         String v = q.get("v");
                         prefs.setBg(v == null || "next".equals(v) ? Prefs.nextBg(prefs.bg()) : v);
@@ -304,6 +317,8 @@ public class OverlayService extends Service {
             o.put("visible", isShowing());
             o.put("mode", prefs.mode());
             o.put("bg", prefs.bg());
+            o.put("smart", prefs.smart());
+            o.put("name", deviceName(this));
             o.put("app", "fantasyoverlay");
             o.put("url", prefs.url());
             o.put("width", prefs.width());

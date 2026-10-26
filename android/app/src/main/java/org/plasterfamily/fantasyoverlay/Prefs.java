@@ -6,7 +6,8 @@ import android.content.SharedPreferences;
 /** Saved settings: panel URL, width, side, visibility, display mode, and (on the phone) the TV's address. */
 final class Prefs {
     static final int PORT = 8765;
-    static final String[] MODES = {"full", "score", "auto", "off"};
+    static final String[] MODES = {"full", "live", "score", "mini", "auto", "off"};
+    static final String[] MODE_NAMES = {"Full", "Live", "Score", "Mini", "Auto", "Off"};
 
     private final SharedPreferences sp;
     private final String defaultUrl;
@@ -42,8 +43,8 @@ final class Prefs {
     }
     void setMode(String m) { if (validMode(m)) sp.edit().putString("mode", m).apply(); }
 
-    static final String[] BGS = {"0", "35", "75"};
-    static final String[] BG_NAMES = {"Solid", "35%", "75%"};
+    static final String[] BGS = {"0", "35", "75", "100"};
+    static final String[] BG_NAMES = {"Solid", "35%", "75%", "None"};
 
     /** Background see-through: "0" (solid), "35" or "75" percent. */
     String bg() {
@@ -57,6 +58,14 @@ final class Prefs {
         for (int i = 0; i < BGS.length; i++) if (BGS[i].equals(cur)) return BGS[(i + 1) % BGS.length];
         return BGS[0];
     }
+
+    /** Smart on/off: the panel hides itself while nobody in the matchup is playing. */
+    boolean smart() { return sp.getBoolean("smart", false); }
+    void setSmart(boolean v) { sp.edit().putBoolean("smart", v).apply(); }
+
+    /** Phone only: devices found on the Wi-Fi, as JSON [{"name","addr","sel"}]. "local" = this phone. */
+    String devices() { return sp.getString("devices", ""); }
+    void setDevices(String v) { sp.edit().putString("devices", v).apply(); }
 
     /** Phone only: the TV's address, e.g. 192.168.1.50 */
     String tvAddress() { return sp.getString("tv", ""); }
