@@ -264,20 +264,26 @@ public class ScoreWidget extends AppWidgetProvider {
         v.setTextViewText(R.id.marginPill, m.pill);
         v.setTextColor(R.id.marginPill, m.marginColor());
         v.setInt(R.id.marginPill, "setBackgroundResource", m.marginBackground());
-        setLogo(v, R.id.logoA, logoA, m.meName);
-        setLogo(v, R.id.logoB, logoB, m.oppName);
+        int ca = dotIndex(m.meName), cb = dotIndex(m.oppName);
+        if (cb == ca) cb = (cb + 3) % DOT_COLORS.length;   // never the same color on both sides
+        setLogo(v, R.id.logoA, logoA, DOT_COLORS[ca]);
+        setLogo(v, R.id.logoB, logoB, DOT_COLORS[cb]);
         v.setOnClickPendingIntent(R.id.scoreArea, broadcast(app, 200, new Intent(app, ScoreWidget.class).setAction(ACTION_REFRESH)));
         return v;
     }
 
-    private static void setLogo(RemoteViews v, int id, Bitmap bmp, String teamName) {
+    private static int dotIndex(String teamName) {
+        return Math.abs((teamName == null ? "" : teamName).hashCode()) % DOT_COLORS.length;
+    }
+
+    private static void setLogo(RemoteViews v, int id, Bitmap bmp, int dotColor) {
         if (bmp != null) {
             v.setImageViewBitmap(id, bmp);
             v.setInt(id, "setColorFilter", 0);
         } else {
             // No logo: a plain dot in a color picked from the team name, so it stays the same each week.
             v.setImageViewResource(id, R.drawable.widget_dot);
-            int c = DOT_COLORS[Math.abs((teamName == null ? "" : teamName).hashCode()) % DOT_COLORS.length];
+            int c = dotColor;
             v.setInt(id, "setColorFilter", c);
         }
     }
@@ -384,11 +390,46 @@ public class ScoreWidget extends AppWidgetProvider {
             c.setReadTimeout(5000);
             c.setInstanceFollowRedirects(true);
             if (c.getResponseCode() != 200) return null;
-            try (InputStream in = c.getInputStream()) { return BitmapFactory.decodeStream(in); }
+            byte[] bytes;
+            try (InputStream in = c.getInputStream()) {
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[16384];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                    if (out.size() > 4_000_000) return null;   // not a logo
+                }
+                bytes = out.toByteArray();
+            }
+            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            if (bmp != null) return bmp;
+            return renderSvg(new String(bytes, StandardCharsets.UTF_8));
         } catch (Exception e) {
             return null;
         } finally {
             if (c != null) c.disconnect();
+        }
+    }
+
+    /** Draws an SVG logo (ESPN's built-in logos are SVG) into a square picture. */
+    private static Bitmap renderSvg(String text) {
+        if (text == null || !text.contains("<svg")) return null;
+        try {
+            com.caverock.androidsvg.SVG svg = com.caverock.androidsvg.SVG.getFromString(text);
+            if (svg.getDocumentViewBox() == null) {
+                float w = svg.getDocumentWidth(), h = svg.getDocumentHeight();
+                if (w <= 0 || h <= 0) { w = 100; h = 100; }
+                svg.setDocumentViewBox(0, 0, w, h);
+            }
+            svg.setDocumentWidth("100%");
+            svg.setDocumentHeight("100%");
+            int size = 144;
+            Bitmap bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas canvas = new android.graphics.Canvas(bmp);
+            svg.renderToCanvas(canvas, com.caverock.androidsvg.RenderOptions.create().viewPort(0, 0, size, size));
+            return bmp;
+        } catch (Throwable t) {
+            return null;
         }
     }
 
