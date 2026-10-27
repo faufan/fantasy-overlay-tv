@@ -27,7 +27,10 @@ const PRO_TEAM = {
   33: "BAL", 34: "HOU",
 };
 
-let memo = { at: 0, data: null };
+let memo = { at: 0, data: null, ttl: 0 };
+let baseMemo = { at: 0, data: null };   // league name + teams change rarely
+let kickFmt = null;                     // building a date formatter is slow; make it once
+const BASE_MS = 3 * 60 * 60 * 1000;
 
 export default {
   async fetch(request, env) {
@@ -131,9 +134,10 @@ async function nflGames() {
 // "Sun 1p", "Mon 8:15p", "Sun 9:30a"
 function shortKick(iso) {
   try {
-    const parts = new Intl.DateTimeFormat("en-US", {
+    kickFmt = kickFmt || new Intl.DateTimeFormat("en-US", {
       weekday: "short", hour: "numeric", minute: "2-digit", hour12: true, timeZone: TIME_ZONE,
-    }).formatToParts(new Date(iso));
+    });
+    const parts = kickFmt.formatToParts(new Date(iso));
     const get = (t) => (parts.find((p) => p.type === t) || {}).value || "";
     const min = get("minute");
     const ap = get("dayPeriod").toLowerCase().startsWith("p") ? "p" : "a";
@@ -290,11 +294,14 @@ async function logoProxy(raw, env, debug) {
 }
 
 async function getMatchup(env) {
-  if (memo.data && Date.now() - memo.at < CACHE_MS) return memo.data;
+  if (memo.data && Date.now() - memo.at < memo.ttl) return memo.data;
   const teamId = Number(env.TEAM_ID);
   if (!teamId) throw new Error("TEAM_ID is not set");
 
-  const base = await espn(env, "view=mSettings&view=mTeam&view=mStatus");
+  if (!baseMemo.data || Date.now() - baseMemo.at > BASE_MS) {
+    baseMemo = { at: Date.now(), data: await espn(env, "view=mSettings&view=mTeam&view=mStatus") };
+  }
+  const base = baseMemo.data;
   const sp = base.scoringPeriodId;
   const mp = base.status?.currentMatchupPeriod || sp;
   const teamsById = Object.fromEntries((base.teams || []).map((t) => [t.id, t]));
@@ -321,8 +328,26 @@ async function getMatchup(env) {
     me: buildSide(mine, teamsById, sp, games),
     opp: buildSide(theirs, teamsById, sp, games),
   };
-  memo = { at: Date.now(), data };
+  data.refreshIn = refreshSeconds(data);
+  memo = { at: Date.now(), data, ttl: Math.min(data.refreshIn * 1000, 5 * 60 * 1000) };
   return data;
+}
+
+// How soon anything could change: fast while a starter is playing, slow otherwise.
+// Clients wait this long before asking again, which keeps the Worker well under its free CPU limit.
+function refreshSeconds(data) {
+  const all = [...(data.me?.starters || []), ...(data.opp?.starters || [])];
+  if (all.some((p) => p.state === "in")) return CACHE_MS / 1000;           // live: 15s
+  const now = Date.now();
+  const next = all
+    .filter((p) => p.state === "pre" && p.kick)
+    .map((p) => Date.parse(p.kick))
+    .filter((t) => t > now - 30 * 60 * 1000)
+    .sort((a, b) => a - b)[0];
+  if (!next) return 30 * 60;                                                // nothing left this week
+  const until = (next - now) / 1000;
+  if (until < 15 * 60) return 30;                                           // kickoff very soon
+  return Math.max(60, Math.min(30 * 60, Math.round(until - 10 * 60)));       // wake ~10 min before kickoff
 }
 
 // Sample data for testing the overlay before the league is configured.

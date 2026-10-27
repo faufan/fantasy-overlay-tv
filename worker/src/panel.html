@@ -223,6 +223,7 @@
 (function () {
   var params = new URLSearchParams(location.search);
   var every = Math.max(10, Number(params.get('every')) || 20) * 1000;
+  var nextWait = every;
   var alertMin = Number(params.get('alert')) || 2;
   if (params.get('opacity')) document.documentElement.style.setProperty('--bg', 'rgba(9, 12, 18, ' + Number(params.get('opacity')) + ')');
 
@@ -461,6 +462,8 @@
         if (d.error) throw new Error(d.error);
         render(d);
         lastOk = Date.now();
+        // The Worker says how long until anything can change; never faster than ?every=.
+        nextWait = Math.max(every, Math.min(30 * 60, Number(d.refreshIn) || 0) * 1000);
         $('status').textContent = '';
         tickClock();
       })
@@ -468,7 +471,7 @@
         $('status').innerHTML = '<span class="err">' + esc(e.message || 'Offline') + '</span>';
         if (!lastOk) $('h2h').innerHTML = '<div class="empty-state">Can’t load the matchup yet.<br>' + esc(e.message || '') + '</div>';
       })
-      .then(function () { setTimeout(load, every); });
+      .then(function () { setTimeout(load, nextWait); });
   }
 
   setInterval(tickClock, 5000);
