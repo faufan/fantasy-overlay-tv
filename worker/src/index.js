@@ -49,9 +49,13 @@ export default {
       });
     }
 
+    if (url.pathname === "/logo") {
+      return logoProxy(url.searchParams.get("u"), env);
+    }
+
     if (url.pathname === "/api/matchup") {
       try {
-        const data = url.searchParams.get("demo") ? demoData() : await getMatchup(env);
+        const data = url.searchParams.get("demo") ? demoData() : withLogoProxy(await getMatchup(env), url, env);
         return json(data);
       } catch (err) {
         return json({ error: String(err && err.message ? err.message : err) }, 502);
@@ -207,6 +211,54 @@ function num(v) {
 }
 function round(v) {
   return Math.round((v || 0) * 10) / 10;
+}
+
+// ESPN only serves uploaded team logos to people signed in to the league, so the Worker
+// fetches them with the league's ESPN sign-in and passes the picture along.
+function withLogoProxy(data, url, env) {
+  const wrap = (logo) => {
+    if (!logo) return "";
+    const key = env.ACCESS_KEY ? `&key=${encodeURIComponent(env.ACCESS_KEY)}` : "";
+    return `${url.origin}/logo?u=${encodeURIComponent(logo)}${key}`;
+  };
+  return {
+    ...data,
+    me: data.me ? { ...data.me, logo: wrap(data.me.logo), espnLogo: data.me.logo } : data.me,
+    opp: data.opp ? { ...data.opp, logo: wrap(data.opp.logo), espnLogo: data.opp.logo } : data.opp,
+  };
+}
+
+async function logoProxy(raw, env) {
+  let target;
+  try {
+    target = new URL(raw || "");
+  } catch (_) {
+    return new Response("Bad logo address", { status: 400 });
+  }
+  // Only ESPN addresses, so this can't be used to fetch anything else.
+  const host = target.hostname;
+  const espn = host === "espn.com" || host.endsWith(".espn.com") || host.endsWith(".espncdn.com");
+  if (target.protocol !== "https:" || !espn) return new Response("Not an ESPN logo", { status: 400 });
+
+  const cache = caches.default;
+  const cacheKey = new Request("https://logo-cache.local/" + encodeURIComponent(target.href));
+  try {
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+  } catch (_) { /* cache not available on workers.dev; fine */ }
+
+  const headers = { accept: "image/*,*/*" };
+  if (env.ESPN_S2 && env.SWID) headers.cookie = `espn_s2=${env.ESPN_S2}; SWID=${env.SWID}`;
+  const res = await fetch(target.href, { headers, redirect: "follow" });
+  if (!res.ok) return new Response(`ESPN returned ${res.status}`, { status: 502 });
+  const type = res.headers.get("content-type") || "application/octet-stream";
+  if (!/^image\//i.test(type) && !/svg/i.test(type)) return new Response("ESPN didn't send a picture", { status: 502 });
+
+  const out = new Response(res.body, {
+    headers: { "content-type": type, "cache-control": "public, max-age=86400", "access-control-allow-origin": "*" },
+  });
+  try { await cache.put(cacheKey, out.clone()); } catch (_) { }
+  return out;
 }
 
 async function getMatchup(env) {
