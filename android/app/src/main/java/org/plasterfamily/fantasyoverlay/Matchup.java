@@ -14,7 +14,7 @@ final class Matchup {
     int share = 50;        // your share of projected points, for the bar
     boolean live = false;  // someone in this matchup is playing right now
     boolean pending = false; // someone hasn't played yet this week
-    String meLogo = "", oppLogo = "";
+    String meLogo = "", oppLogo = "", meAbbrev = "", oppAbbrev = "";
     String status = "FANTASY";      // small widget: "WEEK 7 · LIVE" / "WEEK 7 · FINAL"
     String pill = "TIED";           // small widget: "UP 12.1" / "WON 2.6" / "LOST 2.6"
     final java.util.List<String[]> liveMine = new java.util.ArrayList<>(); // {short name, "TEAM · Q2 4:10", points}
@@ -56,6 +56,8 @@ final class Matchup {
 
         m.meLogo = me.optString("logo", "");
         m.oppLogo = opp.optString("logo", "");
+        m.meAbbrev = me.optString("abbrev", "");
+        m.oppAbbrev = opp.optString("abbrev", "");
 
         JSONArray mineArr = me.optJSONArray("starters");
         JSONArray theirArr = opp.optJSONArray("starters");

@@ -266,8 +266,8 @@ public class ScoreWidget extends AppWidgetProvider {
         v.setInt(R.id.marginPill, "setBackgroundResource", m.marginBackground());
         int ca = dotIndex(m.meName), cb = dotIndex(m.oppName);
         if (cb == ca) cb = (cb + 3) % DOT_COLORS.length;   // never the same color on both sides
-        setLogo(v, R.id.logoA, logoA, DOT_COLORS[ca]);
-        setLogo(v, R.id.logoB, logoB, DOT_COLORS[cb]);
+        setLogo(v, R.id.logoA, R.id.abbrA, logoA, m.meAbbrev, ca);
+        setLogo(v, R.id.logoB, R.id.abbrB, logoB, m.oppAbbrev, cb);
         v.setOnClickPendingIntent(R.id.scoreArea, broadcast(app, 200, new Intent(app, ScoreWidget.class).setAction(ACTION_REFRESH)));
         return v;
     }
@@ -276,15 +276,20 @@ public class ScoreWidget extends AppWidgetProvider {
         return Math.abs((teamName == null ? "" : teamName).hashCode()) % DOT_COLORS.length;
     }
 
-    private static void setLogo(RemoteViews v, int id, Bitmap bmp, int dotColor) {
+    private static final int[] PILLS = {R.drawable.widget_pill_0, R.drawable.widget_pill_1, R.drawable.widget_pill_2,
+            R.drawable.widget_pill_3, R.drawable.widget_pill_4, R.drawable.widget_pill_5, R.drawable.widget_pill_6};
+
+    /** Shows the team's logo if it loaded; otherwise a colored pill with the team's ESPN abbreviation. */
+    private static void setLogo(RemoteViews v, int imageId, int pillId, Bitmap bmp, String abbrev, int colorIndex) {
         if (bmp != null) {
-            v.setImageViewBitmap(id, bmp);
-            v.setInt(id, "setColorFilter", 0);
+            v.setImageViewBitmap(imageId, bmp);
+            v.setViewVisibility(imageId, View.VISIBLE);
+            v.setViewVisibility(pillId, View.GONE);
         } else {
-            // No logo: a plain dot in a color picked from the team name, so it stays the same each week.
-            v.setImageViewResource(id, R.drawable.widget_dot);
-            int c = dotColor;
-            v.setInt(id, "setColorFilter", c);
+            v.setViewVisibility(imageId, View.GONE);
+            v.setViewVisibility(pillId, View.VISIBLE);
+            v.setTextViewText(pillId, abbrev == null || abbrev.isEmpty() ? "–" : abbrev);
+            v.setInt(pillId, "setBackgroundResource", PILLS[colorIndex % PILLS.length]);
         }
     }
 
