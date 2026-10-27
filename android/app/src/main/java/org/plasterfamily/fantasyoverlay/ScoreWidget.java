@@ -282,7 +282,7 @@ public class ScoreWidget extends AppWidgetProvider {
     /** Shows the team's logo if it loaded; otherwise a colored pill with the team's ESPN abbreviation. */
     private static void setLogo(RemoteViews v, int imageId, int pillId, Bitmap bmp, String abbrev, int colorIndex) {
         if (bmp != null) {
-            v.setImageViewBitmap(imageId, bmp);
+            v.setImageViewBitmap(imageId, circle(bmp));
             v.setViewVisibility(imageId, View.VISIBLE);
             v.setViewVisibility(pillId, View.GONE);
         } else {
@@ -361,6 +361,18 @@ public class ScoreWidget extends AppWidgetProvider {
     // ------------------------------------------------------------------ logos
 
     /** Downloads a team logo once and keeps a small copy. Returns null if there's none or it can't be read. */
+    /** Crops a (usually square) logo into a circle, centered, so it matches the round widget style. */
+    private static Bitmap circle(Bitmap src) {
+        int size = Math.min(src.getWidth(), src.getHeight());
+        Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas c = new android.graphics.Canvas(out);
+        android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        c.drawCircle(size / 2f, size / 2f, size / 2f, p);
+        p.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN));
+        c.drawBitmap(src, (size - src.getWidth()) / 2f, (size - src.getHeight()) / 2f, p);
+        return out;
+    }
+
     private static Bitmap logo(Context app, String url) {
         if (url == null || url.isEmpty()) return null;
         File dir = new File(app.getCacheDir(), "logos");
