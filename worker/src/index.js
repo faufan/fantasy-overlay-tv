@@ -50,7 +50,7 @@ export default {
     }
 
     if (url.pathname === "/logo") {
-      return logoProxy(url.searchParams.get("u"), env);
+      return logoProxy(url.searchParams.get("u"), env, url.searchParams.get("debug") === "1");
     }
 
     if (url.pathname === "/api/matchup") {
@@ -228,7 +228,7 @@ function withLogoProxy(data, url, env) {
   };
 }
 
-async function logoProxy(raw, env) {
+async function logoProxy(raw, env, debug) {
   let target;
   try {
     target = new URL(raw || "");
@@ -243,16 +243,44 @@ async function logoProxy(raw, env) {
   const cache = caches.default;
   const cacheKey = new Request("https://logo-cache.local/" + encodeURIComponent(target.href));
   try {
-    const hit = await cache.match(cacheKey);
+    const hit = debug ? null : await cache.match(cacheKey);
     if (hit) return hit;
   } catch (_) { /* cache not available on workers.dev; fine */ }
 
-  const headers = { accept: "image/*,*/*" };
-  if (env.ESPN_S2 && env.SWID) headers.cookie = `espn_s2=${env.ESPN_S2}; SWID=${env.SWID}`;
-  const res = await fetch(target.href, { headers, redirect: "follow" });
-  if (!res.ok) return new Response(`ESPN returned ${res.status}`, { status: 502 });
-  const type = res.headers.get("content-type") || "application/octet-stream";
-  if (!/^image\//i.test(type) && !/svg/i.test(type)) return new Response("ESPN didn't send a picture", { status: 502 });
+  // ESPN's image server checks that the request looks like a browser on ESPN's site,
+  // so try a few browser-style requests, with and without the league sign-in.
+  const browser = {
+    accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+    "user-agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36",
+    referer: "https://fantasy.espn.com/",
+    origin: "https://fantasy.espn.com",
+    "sec-fetch-dest": "image",
+    "sec-fetch-mode": "no-cors",
+    "sec-fetch-site": "same-site",
+  };
+  const cookie = env.ESPN_S2 && env.SWID ? `espn_s2=${env.ESPN_S2}; SWID=${env.SWID}` : null;
+  const tries = [
+    { name: "browser + sign-in", headers: cookie ? { ...browser, cookie } : null },
+    { name: "browser", headers: browser },
+    { name: "sign-in only", headers: cookie ? { cookie } : null },
+    { name: "plain", headers: {} },
+  ].filter((t) => t.headers);
+
+  const report = [];
+  let res = null;
+  for (const t of tries) {
+    try {
+      const r = await fetch(target.href, { headers: t.headers, redirect: "follow" });
+      const type = r.headers.get("content-type") || "";
+      report.push(`${t.name}: ${r.status} ${type}`);
+      if (r.ok && (/^image\//i.test(type) || /svg/i.test(type))) { res = r; break; }
+    } catch (e) {
+      report.push(`${t.name}: failed (${e.message})`);
+    }
+  }
+  if (debug) return new Response(report.join("\n") + "\n", { headers: { "content-type": "text/plain" } });
+  if (!res) return new Response("ESPN wouldn't send the logo:\n" + report.join("\n"), { status: 502 });
+  const type = res.headers.get("content-type") || "image/png";
 
   const out = new Response(res.body, {
     headers: { "content-type": type, "cache-control": "public, max-age=86400", "access-control-allow-origin": "*" },
